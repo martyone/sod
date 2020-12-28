@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 '''
-passthroughfs.py - Example file system for pyfuse3
-
-This file system mirrors the contents of a specified directory tree.
+hashfs.py - mirrors a directory tree replacing data with hashes
 
 Caveats:
 
@@ -67,7 +65,7 @@ log = logging.getLogger(__name__)
 
 BLOCK_SIZE = 65536
 DIGEST_SIZE = 40 # sha-1
-ATTR_DIGEST = 'user.checksumfs_digest'
+ATTR_DIGEST = 'user.hashfs_digest'
 ATTR_DIGEST_VERSION = 1
 SKIP_TREE_FLAGS = {'.git', '.svn'}
 
@@ -359,7 +357,7 @@ def main():
 
     log.debug('Mounting...')
     fuse_options = set(pyfuse3.default_options)
-    fuse_options.add('fsname=checksumfs')
+    fuse_options.add('fsname=hashfs')
     if options.debug_fuse:
         fuse_options.add('debug')
     pyfuse3.init(operations, options.mountpoint, fuse_options)
