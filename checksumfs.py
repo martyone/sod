@@ -67,6 +67,9 @@ log = logging.getLogger(__name__)
 
 BLOCK_SIZE = 65536
 DIGEST_SIZE = 40 # sha-1
+ATTR_DIGEST = 'user.checksumfs_digest'
+ATTR_DIGEST_VERSION = 1
+SKIP_TREE_FLAGS = {'.git', '.svn'}
 
 class Operations(pyfuse3.Operations):
 
@@ -186,8 +189,8 @@ class Operations(pyfuse3.Operations):
         for name in os.listdir(path):
             if name == '.' or name == '..':
                 continue
-            if name == '.git':
-                log.debug('skipping git-managed tree %s', path)
+            if name in SKIP_TREE_FLAGS:
+                log.debug('skipping tree %s', path)
                 entries = []
                 break
             attr = self._getattr(path=os.path.join(path, name))
@@ -262,9 +265,42 @@ class Operations(pyfuse3.Operations):
             self._inode_open_count[inode] += 1
             return pyfuse3.FileInfo(fh=inode)
         assert flags & os.O_CREAT == 0
-        digest = self._hash_file(self._inode_to_path(inode))
-        self._inode_digest_map[inode] = digest + '\n'
+        path = self._inode_to_path(inode)
+
+        try:
+            stat = os.stat(path)
+        except OSError as exc:
+            raise FUSEError(exc.errno)
+
+        digest = None
+
+        try:
+            cached_digest = os.getxattr(path, ATTR_DIGEST)
+            version, timestamp, digest = cached_digest.decode('utf-8').split(':')
+            if int(version) != ATTR_DIGEST_VERSION:
+                log.debug('XXX found incompatible cached digest for %s', path)
+                digest = None
+            elif int(timestamp) < stat.st_mtime_ns:
+                log.debug('XXX found outdated cached digest for %s', path)
+                digest = None
+            else:
+                log.debug('XXX found valid cached digest for %s', path)
+        except:
+            pass
+
+        if not digest:
+            log.debug('XXX computing digest for %s', path)
+            digest = self._hash_file(path)
+            cached_digest = ':'.join([str(ATTR_DIGEST_VERSION), str(stat.st_mtime_ns), digest])
+            try:
+                os.setxattr(path, ATTR_DIGEST, cached_digest.encode('utf-8'))
+            except:
+                log.debug('XXX failed to cache digest for %s', path)
+                raise
+
+        self._inode_digest_map[inode] = (digest + '\n').encode('utf-8')
         self._inode_open_count[inode] = 1
+
         return pyfuse3.FileInfo(fh=inode)
 
     async def create(self, inode_p, name, mode, flags, ctx):
@@ -272,7 +308,7 @@ class Operations(pyfuse3.Operations):
 
     async def read(self, fh, offset, length):
         digest = self._inode_digest_map[fh]
-        return digest[offset:length].encode('utf-8')
+        return digest[offset:length]
 
     async def write(self, fh, offset, buf):
         raise FUSEError(errno.EROFS)
