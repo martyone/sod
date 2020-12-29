@@ -67,6 +67,7 @@ BLOCK_SIZE = 65536
 DIGEST_SIZE = 40 # sha-1
 ATTR_DIGEST = 'user.hashfs_digest'
 ATTR_DIGEST_VERSION = 1
+SKIP_TREE_NAMES = {'.snapshots', '.sod'}
 SKIP_TREE_FLAGS = {'.git', '.svn'}
 
 class Operations(pyfuse3.Operations):
@@ -186,6 +187,8 @@ class Operations(pyfuse3.Operations):
         entries = []
         for name in os.listdir(path):
             if name == '.' or name == '..':
+                continue
+            if name in SKIP_TREE_NAMES:
                 continue
             if name in SKIP_TREE_FLAGS:
                 log.debug('skipping tree %s', path)
