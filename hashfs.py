@@ -293,11 +293,27 @@ class Operations(pyfuse3.Operations):
             log.debug('XXX computing digest for %s', path)
             digest = self._hash_file(path)
             cached_digest = ':'.join([str(ATTR_DIGEST_VERSION), str(stat.st_mtime_ns), digest])
+
+            was_writable = stat.st_mode & stat_m.S_IWUSR
+            if not was_writable:
+                try:
+                    os.chmod(path, stat.st_mode | stat_m.S_IWUSR)
+                except:
+                    log.debug('XXX failed to temprarily make file writable %s', path)
+                    pass
+
             try:
                 os.setxattr(path, ATTR_DIGEST, cached_digest.encode('utf-8'))
             except:
                 log.debug('XXX failed to cache digest for %s', path)
-                raise
+                pass
+
+            if not was_writable:
+                try:
+                    os.chmod(path, stat.st_mode)
+                except:
+                    log.debug('XXX failed to restore permissions for %s', path)
+                    pass
 
         self._inode_digest_map[inode] = (digest + '\n').encode('utf-8')
         self._inode_open_count[inode] = 1
