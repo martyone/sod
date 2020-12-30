@@ -243,7 +243,7 @@ def discover_repository(path):
 def cli(debug):
     init_logging(debug=debug)
 
-@click.command()
+@cli.command()
 def init():
     git = pygit2.init_repository(SOD_DIR, bare=True)
     if not git:
@@ -260,9 +260,8 @@ def init():
     if not initial_commit_oid:
         logger.error('Failed to create empty initial commit')
         return 1
-cli.add_command(init)
 
-@click.command()
+@cli.command()
 @click.option('--staged', is_flag=True, help='Only check the index')
 @click.option('--no-abbrev', is_flag=True, help='Do not abbreviate old content digest')
 def status(staged, no_abbrev):
@@ -293,17 +292,16 @@ def status(staged, no_abbrev):
         diff = repository.git.index.diff_to_tree(work_tree, flags=pygit2.GIT_DIFF_REVERSE)
         diff.find_similar()
         repository.print_status(diff, abbreviate=not no_abbrev)
-cli.add_command(status)
 
-@click.command()
+@cli.command()
 def add():
     pass
 
-@click.command()
+@cli.command()
 def reset():
     pass
 
-@click.command()
+@cli.command()
 @click.option('--message', help='Commit message')
 def commit(message):
     repository = discover_repository(os.getcwd())
@@ -323,13 +321,12 @@ def commit(message):
     if not oid:
         logger.error('Failed to create empty initial commit')
         return 1
-cli.add_command(commit)
 
-@click.command()
+@cli.command()
 def log():
     pass
 
-@click.command()
+@cli.command()
 def test():
     repository = discover_repository(os.getcwd())
     if not repository:
@@ -345,4 +342,3 @@ def test():
     repository.git.index.read_tree(root)
     repository.git.index.write()
     logger.info("tree: %s", root)
-cli.add_command(test)
