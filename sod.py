@@ -28,31 +28,6 @@ def init_logging(debug=False):
         root_logger.setLevel(logging.INFO)
     root_logger.addHandler(handler)
 
-@click.group()
-@click.option('--debug', is_flag=True, help='Enable debugging output')
-def cli(debug):
-    init_logging(debug=debug)
-
-@click.command()
-def status():
-    pass
-
-@click.command()
-def add():
-    pass
-
-@click.command()
-def reset():
-    pass
-
-@click.command()
-def commit():
-    pass
-
-@click.command()
-def log():
-    pass
-
 def hash_file(path):
     hasher = hashlib.sha1()
     try:
@@ -112,7 +87,7 @@ def digest_for(path):
 
     return digest
 
-def walk(top, skip_tree_names, skip_tree_flags):
+def walk_bottom_up(top, skip_tree_names, skip_tree_flags):
     dirs = []
     files = []
     symlinks = []
@@ -153,56 +128,111 @@ def walk(top, skip_tree_names, skip_tree_flags):
                 files.append(entry.name)
 
     for subdir in dirs:
-        yield from walk(os.path.join(top, subdir), skip_tree_names, skip_tree_flags)
+        yield from walk_bottom_up(os.path.join(top, subdir), skip_tree_names, skip_tree_flags)
     yield top, dirs, files, symlinks
 
+def find_upward(path, name, test=os.path.exists):
+    current = path
+    while current != os.path.dirname(current) \
+            and not test(os.path.join(current, name)):
+        current = os.path.dirname(current)
+
+    if current == os.path.dirname(current):
+        return None
+    else:
+        return current
+
+class Repository:
+    def __init__(self, path):
+        self.path = path
+        self.data_dir = os.path.dirname(path)
+        self.git = pygit2.Repository(self.path)
+
+    def build_tree(self, top_dir):
+        trees = {}
+
+        for root, dirs, files, symlinks in walk_bottom_up(top_dir, SKIP_TREE_NAMES, SKIP_TREE_FLAGS):
+            item_count = 0
+            builder = self.git.TreeBuilder()
+            for name in dirs:
+                oid = trees.pop(os.path.join(root, name))
+                if not oid:
+                    continue
+                builder.insert(name, oid, pygit2.GIT_FILEMODE_TREE)
+                item_count += 1
+            for name in files:
+                digest = digest_for(os.path.join(root, name))
+                oid = self.git.create_blob((digest + '\n').encode('utf-8'))
+                builder.insert(name, oid, pygit2.GIT_FILEMODE_BLOB)
+                item_count += 1
+            for name in symlinks:
+                try:
+                    target = os.readlink(os.path.join(root, name))
+                except OSError:
+                    logger.error('failed to read symlink %s', os.path.join(root, name))
+                    continue
+                oid = self.git.create_blob(target)
+                builder.insert(name, oid, pygit2.GIT_FILEMODE_LINK)
+                item_count += 1
+
+            if item_count > 0:
+                trees[root] = builder.write()
+            else:
+                trees[root] = None
+
+        assert len(trees) == 1
+        assert top_dir in trees
+
+        return trees.pop(top_dir)
+
+def discover_repository(path):
+    root_dir = find_upward(path, '.sod', test=os.path.isdir)
+
+    if not root_dir:
+        return None
+
+    return Repository(os.path.join(root_dir, '.sod'))
+
+@click.group()
+@click.option('--debug', is_flag=True, help='Enable debugging output')
+def cli(debug):
+    init_logging(debug=debug)
+
 @click.command()
-@click.argument('git_dir')
-@click.argument('data_dir')
-def test(git_dir, data_dir):
-    repo = pygit2.Repository(git_dir)
-    trees = {}
+def status():
+    pass
 
-    for root, dirs, files, symlinks in walk(data_dir, SKIP_TREE_NAMES, SKIP_TREE_FLAGS):
-        item_count = 0
-        builder = repo.TreeBuilder()
-        for name in dirs:
-            oid = trees.pop(os.path.join(root, name))
-            if not oid:
-                continue
-            builder.insert(name, oid, pygit2.GIT_FILEMODE_TREE)
-            item_count += 1
-        for name in files:
-            digest = digest_for(os.path.join(root, name))
-            oid = repo.create_blob((digest + '\n').encode('utf-8'))
-            builder.insert(name, oid, pygit2.GIT_FILEMODE_BLOB)
-            item_count += 1
-        for name in symlinks:
-            try:
-                target = os.readlink(os.path.join(root, name))
-            except OSError:
-                logger.error('failed to read symlink %s', os.path.join(root, name))
-                continue
-            oid = repo.create_blob(target)
-            builder.insert(name, oid, pygit2.GIT_FILEMODE_LINK)
-            item_count += 1
+@click.command()
+def add():
+    pass
 
-        if item_count > 0:
-            trees[root] = builder.write()
-        else:
-            trees[root] = None
+@click.command()
+def reset():
+    pass
 
-    assert len(trees) == 1
-    assert data_dir in trees
+@click.command()
+def commit():
+    pass
 
-    root = trees.pop(data_dir)
+@click.command()
+def log():
+    pass
+
+@click.command()
+def test():
+    repository = discover_repository(os.getcwd())
+    if not repository:
+        logger.error('Not a sod managed tree')
+        return 1
+
+    root = repository.build_tree(repository.data_dir)
 
     if not root:
         logger.error('empty tree')
         return 1
 
-    repo.index.read_tree(root)
-    repo.index.write()
+    repository.git.index.read_tree(root)
+    repository.git.index.write()
     logger.info("tree: %s", root)
 
 cli.add_command(test)
