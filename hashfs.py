@@ -56,6 +56,7 @@ from pyfuse3 import FUSEError
 from os import fsencode, fsdecode
 from collections import defaultdict
 import trio
+import collections
 import hashlib
 
 import faulthandler
@@ -70,14 +71,19 @@ ATTR_DIGEST_VERSION = 1
 SKIP_TREE_NAMES = {'.snapshots', '.sod'}
 SKIP_TREE_FLAGS = {'.git', '.svn'}
 
+class InodeData:
+    def __init__(self, path, lookup_count, open_count, digest):
+        self.path = path
+        self.lookup_count = lookup_count
+        self.open_count = open_count
+        self.digest = digest
+
 class Operations(pyfuse3.Operations):
 
     def __init__(self, source):
         super().__init__()
-        self._inode_path_map = { pyfuse3.ROOT_INODE: source }
-        self._lookup_cnt = defaultdict(lambda : 0)
-        self._inode_digest_map = dict()
-        self._inode_open_count = dict()
+        self._inode_map = dict()
+        self._inode_map[pyfuse3.ROOT_INODE] = InodeData(source, 0, 0, None)
 
     def _hash_file(self, path):
         hasher = hashlib.sha1()
@@ -91,11 +97,14 @@ class Operations(pyfuse3.Operations):
             return "0" * DIGEST_SIZE
         return hasher.hexdigest()
 
-    def _inode_to_path(self, inode):
-        try:
-            val = self._inode_path_map[inode]
-        except KeyError:
-            raise FUSEError(errno.ENOENT)
+    def _inode_to_path(self, inode, inode_data=None):
+        if inode_data:
+            val = inode_data.path
+        else:
+            try:
+                val = self._inode_map[inode].path
+            except KeyError:
+                raise FUSEError(errno.ENOENT)
 
         if isinstance(val, set):
             # In case of hardlinks, pick any path
@@ -104,31 +113,34 @@ class Operations(pyfuse3.Operations):
 
     def _add_path(self, inode, path):
         log.debug('_add_path for %d, %s', inode, path)
-        self._lookup_cnt[inode] += 1
+        try:
+            data = self._inode_map[inode]
+        except KeyError:
+            data = InodeData(None, 0, 0, None)
+            self._inode_map[inode] = data
+
+        data.lookup_count += 1
 
         # With hardlinks, one inode may map to multiple paths.
-        if inode not in self._inode_path_map:
-            self._inode_path_map[inode] = path
+        if not data.path:
+            data.path = path
             return
 
-        val = self._inode_path_map[inode]
+        val = data.path
         if isinstance(val, set):
             val.add(path)
         elif val != path:
-            self._inode_path_map[inode] = { path, val }
+            data.path = { path, val }
 
     async def forget(self, inode_list):
         for (inode, nlookup) in inode_list:
-            if self._lookup_cnt[inode] > nlookup:
-                self._lookup_cnt[inode] -= nlookup
+            data = self._inode_map[inode]
+            if data.lookup_count > nlookup:
+                data.lookup_count -= nlookup
                 continue
             log.debug('forgetting about inode %d', inode)
-            assert inode not in self._inode_open_count
-            del self._lookup_cnt[inode]
-            try:
-                del self._inode_path_map[inode]
-            except KeyError: # may have been deleted
-                pass
+            assert data.open_count == 0
+            del self._inode_map[inode]
 
     async def lookup(self, inode_p, name, ctx=None):
         name = fsdecode(name)
@@ -219,16 +231,6 @@ class Operations(pyfuse3.Operations):
     async def rmdir(self, inode_p, name, ctx):
         raise FUSEError(errno.EROFS)
 
-    def _forget_path(self, inode, path):
-        log.debug('forget %s for %d', path, inode)
-        val = self._inode_path_map[inode]
-        if isinstance(val, set):
-            val.remove(path)
-            if len(val) == 1:
-                self._inode_path_map[inode] = next(iter(val))
-        else:
-            del self._inode_path_map[inode]
-
     async def symlink(self, inode_p, name, target, ctx):
         raise FUSEError(errno.EROFS)
 
@@ -249,7 +251,7 @@ class Operations(pyfuse3.Operations):
         raise FUSEError(errno.EROFS)
 
     async def statfs(self, ctx):
-        root = self._inode_path_map[pyfuse3.ROOT_INODE]
+        root = self._inode_map[pyfuse3.ROOT_INODE].path
         stat_ = pyfuse3.StatvfsData()
         try:
             statfs = os.statvfs(root)
@@ -262,11 +264,12 @@ class Operations(pyfuse3.Operations):
         return stat_
 
     async def open(self, inode, flags, ctx):
-        if inode in self._inode_digest_map:
-            self._inode_open_count[inode] += 1
+        data = self._inode_map[inode]
+        if data.digest:
+            data.open_count += 1
             return pyfuse3.FileInfo(fh=inode)
         assert flags & os.O_CREAT == 0
-        path = self._inode_to_path(inode)
+        path = self._inode_to_path(inode, data)
 
         try:
             stat = os.stat(path)
@@ -315,8 +318,8 @@ class Operations(pyfuse3.Operations):
                     log.debug('XXX failed to restore permissions for %s', path)
                     pass
 
-        self._inode_digest_map[inode] = (digest + '\n').encode('utf-8')
-        self._inode_open_count[inode] = 1
+        data.digest = (digest + '\n').encode('utf-8')
+        data.open_count = 1
 
         return pyfuse3.FileInfo(fh=inode)
 
@@ -324,19 +327,19 @@ class Operations(pyfuse3.Operations):
         raise FUSEError(errno.EROFS)
 
     async def read(self, fh, offset, length):
-        digest = self._inode_digest_map[fh]
+        digest = self._inode_map[fh].digest
         return digest[offset:length]
 
     async def write(self, fh, offset, buf):
         raise FUSEError(errno.EROFS)
 
     async def release(self, fh):
-        if self._inode_open_count[fh] > 1:
-            self._inode_open_count[fh] -= 1
+        data = self._inode_map[fh]
+        data.open_count -= 1
+        if data.open_count > 0:
             return
 
-        del self._inode_open_count[fh]
-        del self._inode_digest_map[fh]
+        data.digest = None
 
 def init_logging(debug=False):
     formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(threadName)s: '
