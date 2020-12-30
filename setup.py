@@ -6,6 +6,7 @@ setup(
     py_modules=['sod'],
     install_requires=[
         'click',
+        'pygit2',
     ],
     entry_points='''
         [console_scripts]
