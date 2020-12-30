@@ -12,10 +12,26 @@ SODIGNORE_FILE = '.sodignore'
 FAKE_SIGNATURE = pygit2.Signature('sod', 'sod@localhost')
 BLOCK_SIZE = 65536
 DIGEST_SIZE = 40 # sha-1
+DIGEST_ABBREV_SIZE = 10
 ATTR_DIGEST = 'user.sod.digest'
 ATTR_DIGEST_VERSION = 1
 SKIP_TREE_NAMES = {'.snapshots', SOD_DIR}
 SKIP_TREE_FLAGS = {'.git', '.svn', SODIGNORE_FILE}
+
+DELTA_STATUS_NAME = {
+    pygit2.GIT_DELTA_UNMODIFIED: 'unmodified',
+    pygit2.GIT_DELTA_ADDED: 'added',
+    pygit2.GIT_DELTA_DELETED: 'deleted',
+    pygit2.GIT_DELTA_MODIFIED: 'modified',
+    pygit2.GIT_DELTA_RENAMED: 'renamed',
+    pygit2.GIT_DELTA_COPIED: 'copied',
+    pygit2.GIT_DELTA_IGNORED: 'ignored',
+    pygit2.GIT_DELTA_UNTRACKED: 'untracked',
+    pygit2.GIT_DELTA_TYPECHANGE: 'type-changed',
+    pygit2.GIT_DELTA_UNREADABLE: 'unreadable',
+    pygit2.GIT_DELTA_CONFLICTED: 'conflicted',
+}
+DELTA_STATUS_MAX_LENGTH = max([len(name) for name in DELTA_STATUS_NAME.values()])
 
 def init_logging(debug=False):
     formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(threadName)s: '
@@ -145,18 +161,6 @@ def find_upward(path, name, test=os.path.exists):
     else:
         return current
 
-def print_status(git_diff):
-    for delta in git_diff.deltas:
-        if delta.old_file.path == delta.new_file.path:
-            path_info = delta.old_file.path
-        elif common_path := os.path.commonpath([delta.old_file.path, delta.new_file.path]):
-            old_unique = delta.old_file.path[len(common_path):]
-            new_unique = delta.new_file.path[len(common_path):]
-            path_info = common_path + '{' + old_unique + ' -> ' + new_unique + '}'
-        else:
-            path_info = delta.old_file.path + ' -> ' + delta.new_file.path
-        print('{} {}'.format(delta.status_char(), path_info))
-
 class Repository:
     def __init__(self, path):
         self.path = path
@@ -200,6 +204,32 @@ class Repository:
 
         return trees.pop(top_dir)
 
+    def print_status(self, git_diff, abbreviate=True):
+        for delta in git_diff.deltas:
+            if delta.old_file.path == delta.new_file.path:
+                path_info = delta.old_file.path
+            elif common_path := os.path.commonpath([delta.old_file.path, delta.new_file.path]):
+                old_unique = delta.old_file.path[len(common_path):]
+                new_unique = delta.new_file.path[len(common_path):]
+                path_info = common_path + '{' + old_unique + ' -> ' + new_unique + '}'
+            else:
+                path_info = delta.old_file.path + ' -> ' + delta.new_file.path
+
+            if delta.similarity != 100 and delta.status != pygit2.GIT_DELTA_ADDED:
+                old_blob = self.git.get(delta.old_file.id)
+                old_digest = old_blob.data.decode('utf-8').strip()
+            else:
+                old_digest = '-'
+
+            digest_size = [DIGEST_SIZE, DIGEST_ABBREV_SIZE][abbreviate]
+
+            print('  {status:{status_w}}  {old_digest:{digest_w}}  {path_info}'.format(
+                status=DELTA_STATUS_NAME[delta.status] + ':',
+                status_w=DELTA_STATUS_MAX_LENGTH + 1,
+                old_digest=old_digest[0:digest_size],
+                digest_w=digest_size,
+                path_info=path_info))
+
 def discover_repository(path):
     root_dir = find_upward(path, SOD_DIR, test=os.path.isdir)
 
@@ -234,7 +264,8 @@ cli.add_command(init)
 
 @click.command()
 @click.option('--staged', is_flag=True, help='Only check the index')
-def status(staged):
+@click.option('--no-abbrev', is_flag=True, help='Do not abbreviate old content digest')
+def status(staged, no_abbrev):
     repository = discover_repository(os.getcwd())
     if not repository:
         logger.error('Not a sod managed tree')
@@ -252,17 +283,16 @@ def status(staged):
     diff_cached = repository.git.index.diff_to_tree(head.tree)
     diff_cached.find_similar()
 
-    print('Staged:')
-    print_status(diff_cached)
+    print('Changes staged for commit:')
+    repository.print_status(diff_cached, abbreviate=not no_abbrev)
 
     if not staged:
         print('')
-        print('Unstaged:')
+        print('Changes not staged for commit:')
         work_tree = repository.git.get(work_tree_oid)
         diff = repository.git.index.diff_to_tree(work_tree, flags=pygit2.GIT_DIFF_REVERSE)
         diff.find_similar()
-        print_status(diff)
-
+        repository.print_status(diff, abbreviate=not no_abbrev)
 cli.add_command(status)
 
 @click.command()
