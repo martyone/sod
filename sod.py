@@ -7,12 +7,15 @@ import stat as stat_m
 
 logger = logging.getLogger(__name__)
 
+SOD_DIR = '.sod'
+SODIGNORE_FILE = '.sodignore'
+FAKE_SIGNATURE = pygit2.Signature('sod', 'sod@localhost')
 BLOCK_SIZE = 65536
 DIGEST_SIZE = 40 # sha-1
-ATTR_DIGEST = 'user.hashfs_digest'
+ATTR_DIGEST = 'user.sod.digest'
 ATTR_DIGEST_VERSION = 1
-SKIP_TREE_NAMES = {'.snapshots', '.sod'}
-SKIP_TREE_FLAGS = {'.git', '.svn', '.sodignore'}
+SKIP_TREE_NAMES = {'.snapshots', SOD_DIR}
+SKIP_TREE_FLAGS = {'.git', '.svn', SODIGNORE_FILE}
 
 def init_logging(debug=False):
     formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(threadName)s: '
@@ -142,6 +145,18 @@ def find_upward(path, name, test=os.path.exists):
     else:
         return current
 
+def print_status(git_diff):
+    for delta in git_diff.deltas:
+        if delta.old_file.path == delta.new_file.path:
+            path_info = delta.old_file.path
+        elif common_path := os.path.commonpath([delta.old_file.path, delta.new_file.path]):
+            old_unique = delta.old_file.path[len(common_path):]
+            new_unique = delta.new_file.path[len(common_path):]
+            path_info = common_path + '{' + old_unique + ' -> ' + new_unique + '}'
+        else:
+            path_info = delta.old_file.path + ' -> ' + delta.new_file.path
+        print('{} {}'.format(delta.status_char(), path_info))
+
 class Repository:
     def __init__(self, path):
         self.path = path
@@ -186,12 +201,12 @@ class Repository:
         return trees.pop(top_dir)
 
 def discover_repository(path):
-    root_dir = find_upward(path, '.sod', test=os.path.isdir)
+    root_dir = find_upward(path, SOD_DIR, test=os.path.isdir)
 
     if not root_dir:
         return None
 
-    return Repository(os.path.join(root_dir, '.sod'))
+    return Repository(os.path.join(root_dir, SOD_DIR))
 
 @click.group()
 @click.option('--debug', is_flag=True, help='Enable debugging output')
@@ -199,8 +214,56 @@ def cli(debug):
     init_logging(debug=debug)
 
 @click.command()
-def status():
-    pass
+def init():
+    git = pygit2.init_repository(SOD_DIR, bare=True)
+    if not git:
+        logger.error('Failed to init git repository')
+        return 1
+
+    git.config['core.quotePath'] = False
+
+    empty_tree_oid = git.TreeBuilder().write()
+
+    initial_commit_oid = git.create_commit('refs/heads/master',
+            FAKE_SIGNATURE, FAKE_SIGNATURE,
+            'Empty initial commit', empty_tree_oid, [])
+    if not initial_commit_oid:
+        logger.error('Failed to create empty initial commit')
+        return 1
+cli.add_command(init)
+
+@click.command()
+@click.option('--staged', is_flag=True, help='Only check the index')
+def status(staged):
+    repository = discover_repository(os.getcwd())
+    if not repository:
+        logger.error('Not a sod managed tree')
+        return 1
+
+    if not staged:
+        work_tree_oid = repository.build_tree(repository.data_dir)
+        if not work_tree_oid:
+            logger.error('empty tree')
+            return 1
+
+        logger.debug('work tree: %s', work_tree_oid)
+
+    head = repository.git.get(repository.git.head.target)
+    diff_cached = repository.git.index.diff_to_tree(head.tree)
+    diff_cached.find_similar()
+
+    print('Staged:')
+    print_status(diff_cached)
+
+    if not staged:
+        print('')
+        print('Unstaged:')
+        work_tree = repository.git.get(work_tree_oid)
+        diff = repository.git.index.diff_to_tree(work_tree, flags=pygit2.GIT_DIFF_REVERSE)
+        diff.find_similar()
+        print_status(diff)
+
+cli.add_command(status)
 
 @click.command()
 def add():
@@ -211,8 +274,26 @@ def reset():
     pass
 
 @click.command()
-def commit():
-    pass
+@click.option('--message', help='Commit message')
+def commit(message):
+    repository = discover_repository(os.getcwd())
+    if not repository:
+        logger.error('Not a sod managed tree')
+        return 1
+
+    root = repository.build_tree(repository.data_dir)
+
+    if not root:
+        logger.error('empty tree')
+        return 1
+
+    parent, ref = repository.git.resolve_refish(refish=repository.git.head.name)
+    oid = repository.git.create_commit(ref.name, FAKE_SIGNATURE, FAKE_SIGNATURE,
+            message, repository.git.index.write_tree(), [parent.oid])
+    if not oid:
+        logger.error('Failed to create empty initial commit')
+        return 1
+cli.add_command(commit)
 
 @click.command()
 def log():
@@ -234,5 +315,4 @@ def test():
     repository.git.index.read_tree(root)
     repository.git.index.write()
     logger.info("tree: %s", root)
-
 cli.add_command(test)
