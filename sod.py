@@ -309,12 +309,6 @@ def commit(message):
         logger.error('Not a sod managed tree')
         return 1
 
-    root = repository.build_tree(repository.data_dir)
-
-    if not root:
-        logger.error('empty tree')
-        return 1
-
     parent, ref = repository.git.resolve_refish(refish=repository.git.head.name)
     oid = repository.git.create_commit(ref.name, FAKE_SIGNATURE, FAKE_SIGNATURE,
             message, repository.git.index.write_tree(), [parent.oid])
