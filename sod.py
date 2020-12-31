@@ -204,6 +204,73 @@ class Repository:
 
         return trees.pop(top_dir)
 
+    def stage(self, paths=[]):
+        if not paths:
+            root = self.build_tree(self.data_dir)
+            if not root:
+                root = self.git.TreeBuilder().write()
+
+            self.git.index.read_tree(root)
+        else:
+            for path in paths:
+                self._stage(path)
+
+        self.git.index.write()
+
+    def _stage(self, path):
+        if os.path.islink(path):
+            try:
+                target = os.readlink(path)
+            except OSError:
+                logger.error('failed to read symlink %s', path)
+                return
+            oid = self.git.create_blob(target)
+            self.git.index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_LINK))
+        elif os.path.isdir(path):
+            self.git.index.remove_all([path])
+            oid = self.build_tree(path)
+            if not oid:
+                return
+            self._add_tree(path, self.git.get(oid))
+        elif os.path.isfile(path):
+            digest = digest_for(path)
+            oid = self.git.create_blob((digest + '\n').encode('utf-8'))
+            self.git.index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_BLOB))
+        else:
+            self.git.index.remove(path)
+
+    def _add_tree(self, path, tree):
+        for item in tree:
+            item_path = os.path.join(path, item.name)
+            if item.filemode != pygit2.GIT_FILEMODE_TREE:
+                self.git.index.add(pygit2.IndexEntry(item_path, item.id, item.filemode))
+            else:
+                self._add_tree(item_path, self.git.get(item.id))
+
+    def reset(self, paths=[]):
+        head = self.git.get(self.git.head.target)
+
+        if not paths:
+            self.git.index.read_tree(head.tree)
+        else:
+            for path in paths:
+                self._reset(path, head)
+
+        self.git.index.write()
+
+    def _reset(self, path, commit):
+        self.git.index.remove_all([path])
+
+        try:
+            obj = commit.tree[path]
+        except KeyError:
+            return
+
+        if obj.filemode == pygit2.GIT_FILEMODE_TREE:
+            self._add_tree(path, obj)
+        else:
+            self.git.index.add(pygit2.IndexEntry(path, obj.oid, obj.filemode))
+
     def print_status(self, git_diff, abbreviate=True):
         for delta in git_diff.deltas:
             if delta.old_file.path == delta.new_file.path:
@@ -294,12 +361,24 @@ def status(staged, no_abbrev):
         repository.print_status(diff, abbreviate=not no_abbrev)
 
 @cli.command()
-def add():
-    pass
+@click.argument('path', nargs=-1)
+def add(path):
+    repository = discover_repository(os.getcwd())
+    if not repository:
+        logger.error('Not a sod managed tree')
+        return 1
+
+    repository.stage(path)
 
 @cli.command()
-def reset():
-    pass
+@click.argument('path', nargs=-1)
+def reset(path):
+    repository = discover_repository(os.getcwd())
+    if not repository:
+        logger.error('Not a sod managed tree')
+        return 1
+
+    repository.reset(path)
 
 @cli.command()
 @click.option('--message', help='Commit message')
