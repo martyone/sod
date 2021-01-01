@@ -61,24 +61,26 @@ def hash_file(path):
         return "0" * DIGEST_SIZE
     return hasher.hexdigest()
 
-def digest_for(path):
+def digest_for(path, rehash=False):
     stat = os.stat(path)
 
     digest = None
 
-    try:
-        cached_digest = os.getxattr(path, ATTR_DIGEST)
-        version, timestamp, digest = cached_digest.decode('utf-8').split(':')
-        if int(version) != ATTR_DIGEST_VERSION:
-            logger.debug('Found incompatible cached digest for %s', path)
-            digest = None
-        elif int(timestamp) < stat.st_mtime_ns:
-            logger.debug('Found outdated cached digest for %s', path)
-            digest = None
+    if not rehash:
+        try:
+            cached_digest = os.getxattr(path, ATTR_DIGEST)
+            version, timestamp, digest = cached_digest.decode('utf-8').split(':')
+        except:
+            pass
         else:
-            logger.debug('Found valid cached digest for %s', path)
-    except:
-        pass
+            if int(version) != ATTR_DIGEST_VERSION:
+                logger.debug('Found incompatible cached digest for %s', path)
+                digest = None
+            elif int(timestamp) < stat.st_mtime_ns:
+                logger.debug('Found outdated cached digest for %s', path)
+                digest = None
+            else:
+                logger.debug('Found valid cached digest for %s', path)
 
     if not digest:
         logger.debug('Computing digest for %s', path)
@@ -186,7 +188,7 @@ class Repository:
 
         git.config['core.quotePath'] = False
 
-    def build_tree(self, top_dir):
+    def build_tree(self, top_dir, rehash=False):
         trees = {}
 
         for root, dirs, files, symlinks in walk_bottom_up(top_dir, SKIP_TREE_NAMES, SKIP_TREE_FLAGS):
@@ -199,7 +201,7 @@ class Repository:
                 builder.insert(name, oid, pygit2.GIT_FILEMODE_TREE)
                 item_count += 1
             for name in files:
-                digest = digest_for(os.path.join(root, name))
+                digest = digest_for(os.path.join(root, name), rehash)
                 oid = self.git.create_blob((digest + '\n').encode('utf-8'))
                 builder.insert(name, oid, pygit2.GIT_FILEMODE_BLOB)
                 item_count += 1
@@ -318,8 +320,8 @@ class Repository:
 
         return diff
 
-    def diff_not_staged(self):
-        work_tree_oid = self.build_tree(self.data_dir)
+    def diff_not_staged(self, rehash=False):
+        work_tree_oid = self.build_tree(self.data_dir, rehash)
         work_tree = self.git.get(work_tree_oid)
         diff = self.git.index.diff_to_tree(work_tree, flags=pygit2.GIT_DIFF_REVERSE)
         diff.find_similar()
@@ -396,13 +398,14 @@ def init():
 
 @cli.command()
 @click.option('--staged', is_flag=True, help='Only check the index')
+@click.option('-r', '--rehash', is_flag=True, help='Do not use cached digests')
 @click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
 @pass_repository
-def status(repository, staged, abbrev):
+def status(repository, staged, rehash, abbrev):
     diff_cached = repository.diff_staged()
 
     if not staged:
-        diff_not_staged = repository.diff_not_staged()
+        diff_not_staged = repository.diff_not_staged(rehash)
 
     print('Changes staged for commit:')
     repository.print_status(diff_cached, abbreviate=abbrev)
