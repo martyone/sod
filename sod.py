@@ -188,7 +188,7 @@ class Repository:
 
         git.config['core.quotePath'] = False
 
-    def build_tree(self, top_dir, rehash=False):
+    def _build_tree(self, top_dir, rehash=False):
         trees = {}
 
         for root, dirs, files, symlinks in walk_bottom_up(top_dir, SKIP_TREE_NAMES, SKIP_TREE_FLAGS):
@@ -227,8 +227,8 @@ class Repository:
 
     def stage(self, paths=[]):
         if not paths:
-            root = self.build_tree(self.path)
-            self.git.index.read_tree(root)
+            tmp_tree_oid = self._build_tree(self.path)
+            self.git.index.read_tree(tmp_tree_oid)
         else:
             for path in paths:
                 self._stage(path)
@@ -246,9 +246,7 @@ class Repository:
             self.git.index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_LINK))
         elif os.path.isdir(path):
             self.git.index.remove_all([path])
-            oid = self.build_tree(path)
-            if not oid:
-                return
+            oid = self._build_tree(path)
             self._add_tree(path, self.git.get(oid))
         elif os.path.isfile(path):
             digest = digest_for(path)
@@ -313,9 +311,9 @@ class Repository:
         return diff
 
     def diff_not_staged(self, rehash=False):
-        work_tree_oid = self.build_tree(self.path, rehash)
-        work_tree = self.git.get(work_tree_oid)
-        diff = self.git.index.diff_to_tree(work_tree, flags=pygit2.GIT_DIFF_REVERSE)
+        tmp_tree_oid = self._build_tree(self.path, rehash)
+        tmp_tree = self.git.get(tmp_tree_oid)
+        diff = self.git.index.diff_to_tree(tmp_tree, flags=pygit2.GIT_DIFF_REVERSE)
         diff.find_similar()
 
         return diff
