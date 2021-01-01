@@ -70,18 +70,18 @@ def digest_for(path):
         cached_digest = os.getxattr(path, ATTR_DIGEST)
         version, timestamp, digest = cached_digest.decode('utf-8').split(':')
         if int(version) != ATTR_DIGEST_VERSION:
-            logger.debug('XXX found incompatible cached digest for %s', path)
+            logger.debug('Found incompatible cached digest for %s', path)
             digest = None
         elif int(timestamp) < stat.st_mtime_ns:
-            logger.debug('XXX found outdated cached digest for %s', path)
+            logger.debug('Found outdated cached digest for %s', path)
             digest = None
         else:
-            logger.debug('XXX found valid cached digest for %s', path)
+            logger.debug('Found valid cached digest for %s', path)
     except:
         pass
 
     if not digest:
-        logger.debug('XXX computing digest for %s', path)
+        logger.debug('Computing digest for %s', path)
         digest = hash_file(path)
         cached_digest = ':'.join([str(ATTR_DIGEST_VERSION), str(stat.st_mtime_ns), digest])
 
@@ -90,20 +90,20 @@ def digest_for(path):
             try:
                 os.chmod(path, stat.st_mode | stat_m.S_IWUSR)
             except:
-                logger.debug('XXX failed to temprarily make file writable %s', path)
+                logger.debug('Failed to temprarily make file writable %s', path)
                 pass
 
         try:
             os.setxattr(path, ATTR_DIGEST, cached_digest.encode('utf-8'))
         except:
-            logger.debug('XXX failed to cache digest for %s', path)
+            logger.debug('Failed to cache digest for %s', path)
             pass
 
         if not was_writable:
             try:
                 os.chmod(path, stat.st_mode)
             except:
-                logger.debug('XXX failed to restore permissions for %s', path)
+                logger.debug('Failed to restore permissions for %s', path)
                 pass
 
     return digest
@@ -116,7 +116,7 @@ def walk_bottom_up(top, skip_tree_names, skip_tree_flags):
     try:
         it = os.scandir(top)
     except OSError as e:
-        logger.error('scandir failed: %s', e)
+        logger.error('scandir() failed: %s', e)
         yield top, [], [], []
         return
 
@@ -128,7 +128,7 @@ def walk_bottom_up(top, skip_tree_names, skip_tree_flags):
                 except StopIteration:
                     break
             except OSError as e:
-                logger.error('next failed: %s', e)
+                logger.error('next() failed: %s', e)
                 yield top, [], [], []
                 return
 
@@ -206,8 +206,8 @@ class Repository:
             for name in symlinks:
                 try:
                     target = os.readlink(os.path.join(root, name))
-                except OSError:
-                    logger.error('failed to read symlink %s', os.path.join(root, name))
+                except OSError as e:
+                    logger.warning('Failed to read symlink: %s: %s', os.path.join(root, name), e)
                     continue
                 oid = self.git.create_blob(target)
                 builder.insert(name, oid, pygit2.GIT_FILEMODE_LINK)
@@ -221,7 +221,10 @@ class Repository:
         assert len(trees) == 1
         assert top_dir in trees
 
-        return trees.pop(top_dir)
+        work_tree_oid = trees.pop(top_dir)
+        logger.debug('work tree: %s', work_tree_oid)
+
+        return work_tree_oid
 
     def stage(self, paths=[]):
         if not paths:
@@ -240,8 +243,8 @@ class Repository:
         if os.path.islink(path):
             try:
                 target = os.readlink(path)
-            except OSError:
-                logger.error('failed to read symlink %s', path)
+            except OSError as e:
+                logger.warning('Failed to read symlink: %s: %s', path, e)
                 return
             oid = self.git.create_blob(target)
             self.git.index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_LINK))
@@ -306,22 +309,17 @@ class Repository:
             head = None
 
         if head:
-            diff_cached = self.git.index.diff_to_tree(head.tree)
-            diff_cached.find_similar()
+            diff = self.git.index.diff_to_tree(head.tree)
+            diff.find_similar()
         else:
             empty_tree_oid = self.git.TreeBuilder().write()
             empty_tree = self.git.get(empty_tree_oid)
-            diff_cached = self.git.index.diff_to_tree(empty_tree)
+            diff = self.git.index.diff_to_tree(empty_tree)
 
-        return diff_cached
+        return diff
 
     def diff_not_staged(self):
         work_tree_oid = self.build_tree(self.data_dir)
-        if not work_tree_oid:
-            logger.error('empty tree')
-            return 1
-
-        logger.debug('work tree: %s', work_tree_oid)
         work_tree = self.git.get(work_tree_oid)
         diff = self.git.index.diff_to_tree(work_tree, flags=pygit2.GIT_DIFF_REVERSE)
         diff.find_similar()
