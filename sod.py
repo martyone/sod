@@ -4,6 +4,7 @@ import logging
 import os
 import pygit2
 import stat as stat_m
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -161,11 +162,33 @@ def find_upward(path, name, test=os.path.exists):
     else:
         return current
 
+class Error(Exception):
+    pass
+
 class Repository:
     def __init__(self, path):
         self.path = path
         self.data_dir = os.path.dirname(path)
         self.git = pygit2.Repository(self.path)
+
+    @staticmethod
+    def initialize(path):
+        if not os.path.isdir(path):
+            raise Error('Not a directory: ' + path)
+
+        git_path = os.path.join(path, SOD_DIR)
+        if os.path.exists(git_path):
+            raise Error('Attempt to reinitialize: ' + path)
+
+        git = pygit2.init_repository(git_path, bare=True,
+                flags=pygit2.GIT_REPOSITORY_INIT_NO_REINIT|pygit2.GIT_REPOSITORY_INIT_MKDIR)
+
+        git.config['core.quotePath'] = False
+
+        empty_tree_oid = git.TreeBuilder().write()
+        git.create_commit('refs/heads/master',
+                FAKE_SIGNATURE, FAKE_SIGNATURE,
+                'Empty initial commit', empty_tree_oid, [])
 
     def build_tree(self, top_dir):
         trees = {}
@@ -297,46 +320,43 @@ class Repository:
                 digest_w=digest_size,
                 path_info=path_info))
 
-def discover_repository(path):
-    root_dir = find_upward(path, SOD_DIR, test=os.path.isdir)
+    def commit(self, message):
+        parent, ref = self.git.resolve_refish(refish=self.git.head.name)
+        self.git.create_commit(ref.name, FAKE_SIGNATURE, FAKE_SIGNATURE,
+                message, self.git.index.write_tree(), [parent.oid])
 
-    if not root_dir:
-        return None
+class ErrorHandlingGroup(click.Group):
+    def __call__(self, *args, **kwargs):
+        try:
+            super().__call__(*args, **kwargs)
+        except Error as e:
+            click.ClickException(e).show()
+            sys.exit(1)
 
-    return Repository(os.path.join(root_dir, SOD_DIR))
+class DiscoveredRepository(Repository):
+    def __init__(self):
+        root_dir = find_upward(os.getcwd(), SOD_DIR, test=os.path.isdir)
+        if not root_dir:
+            raise click.ClickException('Not a sod managed tree')
 
-@click.group()
+        super().__init__(os.path.join(root_dir, SOD_DIR))
+
+pass_repository = click.make_pass_decorator(DiscoveredRepository, ensure=True)
+
+@click.group(cls=ErrorHandlingGroup)
 @click.option('--debug', is_flag=True, help='Enable debugging output')
 def cli(debug):
     init_logging(debug=debug)
 
 @cli.command()
 def init():
-    git = pygit2.init_repository(SOD_DIR, bare=True)
-    if not git:
-        logger.error('Failed to init git repository')
-        return 1
-
-    git.config['core.quotePath'] = False
-
-    empty_tree_oid = git.TreeBuilder().write()
-
-    initial_commit_oid = git.create_commit('refs/heads/master',
-            FAKE_SIGNATURE, FAKE_SIGNATURE,
-            'Empty initial commit', empty_tree_oid, [])
-    if not initial_commit_oid:
-        logger.error('Failed to create empty initial commit')
-        return 1
+    Repository.initialize(os.getcwd())
 
 @cli.command()
 @click.option('--staged', is_flag=True, help='Only check the index')
 @click.option('--no-abbrev', is_flag=True, help='Do not abbreviate old content digest')
-def status(staged, no_abbrev):
-    repository = discover_repository(os.getcwd())
-    if not repository:
-        logger.error('Not a sod managed tree')
-        return 1
-
+@pass_repository
+def status(repository, staged, no_abbrev):
     if not staged:
         work_tree_oid = repository.build_tree(repository.data_dir)
         if not work_tree_oid:
@@ -362,50 +382,29 @@ def status(staged, no_abbrev):
 
 @cli.command()
 @click.argument('path', nargs=-1)
-def add(path):
-    repository = discover_repository(os.getcwd())
-    if not repository:
-        logger.error('Not a sod managed tree')
-        return 1
-
+@pass_repository
+def add(repository, path):
     repository.stage(path)
 
 @cli.command()
 @click.argument('path', nargs=-1)
-def reset(path):
-    repository = discover_repository(os.getcwd())
-    if not repository:
-        logger.error('Not a sod managed tree')
-        return 1
-
+@pass_repository
+def reset(repository, path):
     repository.reset(path)
 
 @cli.command()
 @click.option('--message', help='Commit message')
-def commit(message):
-    repository = discover_repository(os.getcwd())
-    if not repository:
-        logger.error('Not a sod managed tree')
-        return 1
-
-    parent, ref = repository.git.resolve_refish(refish=repository.git.head.name)
-    oid = repository.git.create_commit(ref.name, FAKE_SIGNATURE, FAKE_SIGNATURE,
-            message, repository.git.index.write_tree(), [parent.oid])
-    if not oid:
-        logger.error('Failed to create empty initial commit')
-        return 1
+@pass_repository
+def commit(repository, message):
+    repository.commit(message)
 
 @cli.command()
 def log():
     pass
 
 @cli.command()
-def test():
-    repository = discover_repository(os.getcwd())
-    if not repository:
-        logger.error('Not a sod managed tree')
-        return 1
-
+@pass_repository
+def test(repository):
     root = repository.build_tree(repository.data_dir)
 
     if not root:
