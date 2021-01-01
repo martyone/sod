@@ -359,7 +359,7 @@ class Repository:
 
         return diff
 
-    def print_status(self, git_diff, abbreviate=True):
+    def format_diff(self, git_diff, abbreviate=True):
         for delta in git_diff.deltas:
             if delta.old_file.path == delta.new_file.path:
                 path_info = delta.old_file.path
@@ -374,12 +374,26 @@ class Repository:
 
             digest_size = [HEXDIGEST_SIZE, HEXDIGEST_ABBREV_SIZE][abbreviate]
 
-            print('  {status:{status_w}}  {old_digest:{digest_w}}  {path_info}'.format(
+            yield '  {status:{status_w}}  {old_digest:{digest_w}}  {path_info}\n'.format(
                 status=DELTA_STATUS_NAME[delta.status] + ':',
                 status_w=DELTA_STATUS_MAX_LENGTH + 1,
                 old_digest=old_digest[0:digest_size],
                 digest_w=digest_size,
-                path_info=path_info))
+                path_info=path_info)
+
+    def format_log(self, oid, abbreviate=False):
+        for commit in self.git.walk(oid):
+            if commit.parents:
+                diff = commit.tree.diff_to_tree(commit.parents[0].tree, swap=True)
+                diff.find_similar()
+            else:
+                diff = commit.tree.diff_to_tree(swap=True)
+
+            yield '* {}\n'.format(commit.message)
+            yield '  {:%c}\n'.format(datetime.fromtimestamp(commit.commit_time))
+            yield '\n'
+            yield from self.format_diff(diff, abbreviate=abbreviate)
+            yield '\n'
 
     def commit(self, message):
         if not self.diff_staged():
@@ -434,13 +448,12 @@ def status(repository, staged, rehash, abbrev):
     if not staged:
         diff_not_staged = repository.diff_not_staged(rehash)
 
-    print('Changes staged for commit:')
-    repository.print_status(diff_cached, abbreviate=abbrev)
+    click.echo('Changes staged for commit:')
+    click.echo(''.join(repository.format_diff(diff_cached, abbreviate=abbrev)))
 
     if not staged:
-        print('')
-        print('Changes not staged for commit:')
-        repository.print_status(diff_not_staged, abbreviate=abbrev)
+        click.echo('Changes not staged for commit:')
+        click.echo(''.join(repository.format_diff(diff_not_staged, abbreviate=abbrev)))
 
 @cli.command()
 @click.argument('path', nargs=-1)
@@ -469,15 +482,4 @@ def log(repository, abbrev):
     except pygit2.GitError:
         raise Error('No commit found')
 
-    for commit in repository.git.walk(head):
-        if commit.parents:
-            diff = commit.tree.diff_to_tree(commit.parents[0].tree, swap=True)
-            diff.find_similar()
-        else:
-            diff = commit.tree.diff_to_tree(swap=True)
-
-        print('* {}'.format(commit.message))
-        print('  {:%c}'.format(datetime.fromtimestamp(commit.commit_time)))
-        print('')
-        repository.print_status(diff, abbreviate=abbrev)
-        print('')
+    click.echo_via_pager(repository.format_log(head, abbreviate=abbrev))
