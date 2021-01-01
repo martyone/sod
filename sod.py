@@ -14,8 +14,9 @@ SOD_DIR = '.sod'
 SODIGNORE_FILE = '.sodignore'
 FAKE_SIGNATURE = pygit2.Signature('sod', 'sod@localhost')
 BLOCK_SIZE = 65536
-DIGEST_SIZE = 40 # sha-1
-DIGEST_ABBREV_SIZE = 10
+HASH_ALGORITHM = 'sha1'
+HEXDIGEST_SIZE = hashlib.new(HASH_ALGORITHM).digest_size * 2
+HEXDIGEST_ABBREV_SIZE = 10
 ATTR_DIGEST = 'user.sod.digest'
 ATTR_DIGEST_VERSION = 1
 SKIP_TREE_NAMES = {'.snapshots', SOD_DIR}
@@ -51,7 +52,7 @@ def init_logging(debug=False):
     root_logger.addHandler(handler)
 
 def hash_file(path):
-    hasher = hashlib.sha1()
+    hasher = hashlib.new(HASH_ALGORITHM)
     try:
         with open(path, 'rb') as f:
             block = f.read(BLOCK_SIZE)
@@ -59,7 +60,7 @@ def hash_file(path):
                 hasher.update(block)
                 block = f.read(BLOCK_SIZE)
     except:
-        return "0" * DIGEST_SIZE
+        return "0" * HEXDIGEST_SIZE
     return hasher.hexdigest()
 
 @contextmanager
@@ -98,7 +99,7 @@ def digest_for(path, rehash=False):
         except:
             pass
         else:
-            if int(version) != ATTR_DIGEST_VERSION or algorithm != 'sha1':
+            if int(version) != ATTR_DIGEST_VERSION or algorithm != HASH_ALGORITHM:
                 logger.debug('Found incompatible cached digest for %s', path)
                 digest = None
             elif int(timestamp) < stat.st_mtime_ns:
@@ -110,7 +111,8 @@ def digest_for(path, rehash=False):
     if not digest:
         logger.debug('Computing digest for %s', path)
         digest = hash_file(path)
-        cached_digest = ':'.join([str(ATTR_DIGEST_VERSION), str(stat.st_mtime_ns), 'sha1', digest])
+        cached_digest = ':'.join([str(ATTR_DIGEST_VERSION), str(stat.st_mtime_ns), HASH_ALGORITHM,
+            digest])
 
         with temporarily_writable(path, stat=stat):
             try:
@@ -346,7 +348,7 @@ class Repository:
             else:
                 old_digest = '-'
 
-            digest_size = [DIGEST_SIZE, DIGEST_ABBREV_SIZE][abbreviate]
+            digest_size = [HEXDIGEST_SIZE, HEXDIGEST_ABBREV_SIZE][abbreviate]
 
             print('  {status:{status_w}}  {old_digest:{digest_w}}  {path_info}'.format(
                 status=DELTA_STATUS_NAME[delta.status] + ':',
