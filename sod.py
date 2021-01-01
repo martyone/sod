@@ -389,8 +389,8 @@ class Repository:
             else:
                 diff = commit.tree.diff_to_tree(swap=True)
 
-            yield '* {}\n'.format(commit.message)
-            yield '  {:%c}\n'.format(datetime.fromtimestamp(commit.commit_time))
+            yield '* {:%c}\n'.format(datetime.fromtimestamp(commit.commit_time))
+            yield '  {}\n'.format(commit.message)
             yield '\n'
             yield from self.format_diff(diff, abbreviate=abbreviate)
             yield '\n'
