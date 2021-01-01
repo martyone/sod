@@ -354,9 +354,9 @@ def init():
 
 @cli.command()
 @click.option('--staged', is_flag=True, help='Only check the index')
-@click.option('--no-abbrev', is_flag=True, help='Do not abbreviate old content digest')
+@click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
 @pass_repository
-def status(repository, staged, no_abbrev):
+def status(repository, staged, abbrev):
     if not staged:
         work_tree_oid = repository.build_tree(repository.data_dir)
         if not work_tree_oid:
@@ -370,7 +370,7 @@ def status(repository, staged, no_abbrev):
     diff_cached.find_similar()
 
     print('Changes staged for commit:')
-    repository.print_status(diff_cached, abbreviate=not no_abbrev)
+    repository.print_status(diff_cached, abbreviate=abbrev)
 
     if not staged:
         print('')
@@ -378,7 +378,7 @@ def status(repository, staged, no_abbrev):
         work_tree = repository.git.get(work_tree_oid)
         diff = repository.git.index.diff_to_tree(work_tree, flags=pygit2.GIT_DIFF_REVERSE)
         diff.find_similar()
-        repository.print_status(diff, abbreviate=not no_abbrev)
+        repository.print_status(diff, abbreviate=abbrev)
 
 @cli.command()
 @click.argument('path', nargs=-1)
