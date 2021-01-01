@@ -1,4 +1,5 @@
 import click
+from datetime import datetime
 import hashlib
 import logging
 import os
@@ -399,8 +400,20 @@ def commit(repository, message):
     repository.commit(message)
 
 @cli.command()
-def log():
-    pass
+@click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
+@pass_repository
+def log(repository, abbrev):
+    for commit in repository.git.walk(repository.git.head.target):
+        if commit.parents:
+            diff = commit.tree.diff_to_tree(commit.parents[0].tree, swap=True)
+        else:
+            diff = commit.tree.diff_to_tree(swap=True)
+
+        print('* {}'.format(commit.message))
+        print('  {:%c}'.format(datetime.fromtimestamp(commit.commit_time)))
+        print('')
+        repository.print_status(diff, abbreviate=abbrev)
+        print('')
 
 @cli.command()
 @pass_repository
