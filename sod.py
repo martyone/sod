@@ -38,8 +38,8 @@ DELTA_STATUS_NAME = {
 DELTA_STATUS_MAX_LENGTH = max([len(name) for name in DELTA_STATUS_NAME.values()])
 
 def init_logging(debug=False):
-    formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(threadName)s: '
-                                  '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+    formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(name)s] %(message)s',
+                                  datefmt="%H:%M:%S")
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
     root_logger = logging.getLogger()
