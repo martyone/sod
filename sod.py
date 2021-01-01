@@ -172,6 +172,7 @@ class Repository:
     def __init__(self, path):
         self.path = path
         self.git = pygit2.Repository(os.path.join(self.path, SOD_DIR))
+        self.EMPTY_TREE_OID = self.git.TreeBuilder().write()
 
     @staticmethod
     def initialize(path):
@@ -217,7 +218,7 @@ class Repository:
             if item_count > 0:
                 trees[root] = builder.write()
             else:
-                trees[root] = None
+                trees[root] = self.EMPTY_TREE_OID
 
         assert len(trees) == 1
         assert top_dir in trees
@@ -227,9 +228,6 @@ class Repository:
     def stage(self, paths=[]):
         if not paths:
             root = self.build_tree(self.path)
-            if not root:
-                root = self.git.TreeBuilder().write()
-
             self.git.index.read_tree(root)
         else:
             for path in paths:
@@ -276,8 +274,7 @@ class Repository:
         if head:
             head_tree = head.tree
         else:
-            empty_tree_oid = self.git.TreeBuilder().write()
-            head_tree = self.git.get(empty_tree_oid)
+            head_tree = self.git.get(self.EMPTY_TREE_OID)
 
         if not paths:
             self.git.index.read_tree(head_tree)
@@ -310,8 +307,7 @@ class Repository:
             diff = self.git.index.diff_to_tree(head.tree)
             diff.find_similar()
         else:
-            empty_tree_oid = self.git.TreeBuilder().write()
-            empty_tree = self.git.get(empty_tree_oid)
+            empty_tree = self.git.get(self.EMPTY_TREE_OID)
             diff = self.git.index.diff_to_tree(empty_tree)
 
         return diff
