@@ -225,17 +225,17 @@ class Repository:
 
         return trees.pop(top_dir)
 
-    def stage(self, paths=[]):
+    def add(self, paths=[]):
         if not paths:
             tmp_tree_oid = self._build_tree(self.path)
             self.git.index.read_tree(tmp_tree_oid)
         else:
             for path in paths:
-                self._stage(path)
+                self._add(path)
 
         self.git.index.write()
 
-    def _stage(self, path):
+    def _add(self, path):
         if os.path.islink(path):
             try:
                 target = os.readlink(path)
@@ -409,7 +409,7 @@ def status(repository, staged, rehash, abbrev):
 @click.argument('path', nargs=-1)
 @pass_repository
 def add(repository, path):
-    repository.stage(path)
+    repository.add(path)
 
 @cli.command()
 @click.argument('path', nargs=-1)
