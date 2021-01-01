@@ -1,4 +1,5 @@
 import click
+from contextlib import contextmanager
 from datetime import datetime
 import hashlib
 import logging
@@ -61,6 +62,30 @@ def hash_file(path):
         return "0" * DIGEST_SIZE
     return hasher.hexdigest()
 
+@contextmanager
+def temporarily_writable(path, stat=None):
+    if not stat:
+        stat = os.stat(path)
+
+    was_writable = stat.st_mode & stat_m.S_IWUSR
+    if not was_writable:
+        try:
+            os.chmod(path, stat.st_mode | stat_m.S_IWUSR)
+        except:
+            logger.debug('Failed to temprarily make file writable %s', path)
+            pass
+
+    try:
+        yield
+    finally:
+        if not was_writable:
+            try:
+                os.chmod(path, stat.st_mode)
+            except:
+                logger.debug('Failed to restore permissions for %s', path)
+                pass
+
+
 def digest_for(path, rehash=False):
     stat = os.stat(path)
 
@@ -87,25 +112,11 @@ def digest_for(path, rehash=False):
         digest = hash_file(path)
         cached_digest = ':'.join([str(ATTR_DIGEST_VERSION), str(stat.st_mtime_ns), 'sha1', digest])
 
-        was_writable = stat.st_mode & stat_m.S_IWUSR
-        if not was_writable:
+        with temporarily_writable(path, stat=stat):
             try:
-                os.chmod(path, stat.st_mode | stat_m.S_IWUSR)
+                os.setxattr(path, ATTR_DIGEST, cached_digest.encode('utf-8'))
             except:
-                logger.debug('Failed to temprarily make file writable %s', path)
-                pass
-
-        try:
-            os.setxattr(path, ATTR_DIGEST, cached_digest.encode('utf-8'))
-        except:
-            logger.debug('Failed to cache digest for %s', path)
-            pass
-
-        if not was_writable:
-            try:
-                os.chmod(path, stat.st_mode)
-            except:
-                logger.debug('Failed to restore permissions for %s', path)
+                logger.debug('Failed to cache digest for %s', path)
                 pass
 
     return digest
