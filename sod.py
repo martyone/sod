@@ -428,7 +428,7 @@ def reset(repository, path):
     repository.reset(path)
 
 @cli.command()
-@click.option('--message', help='Commit message')
+@click.option('-m', '--message', help='Commit message')
 @pass_repository
 def commit(repository, message):
     repository.commit(message)
