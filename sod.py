@@ -178,6 +178,34 @@ def find_upward(path, name, test=os.path.exists):
     else:
         return current
 
+def format_path_change(old_path, new_path):
+    common_prefix = os.path.commonpath([old_path, new_path])
+    if common_prefix:
+        common_prefix += os.path.sep
+    old_unique = old_path[len(common_prefix):]
+    new_unique = new_path[len(common_prefix):]
+    common_suffix = ''
+    while True:
+        old_unique_h, old_unique_t = os.path.split(old_unique)
+        new_unique_h, new_unique_t = os.path.split(new_unique)
+        logger.debug('yyy1 %s, %s', old_unique_h, old_unique_t)
+        logger.debug('yyy2 %s, %s', new_unique_h, new_unique_t)
+        if old_unique_t != new_unique_t:
+            break
+        common_suffix = os.path.join(old_unique_t, common_suffix)
+        old_unique = old_unique_h
+        new_unique = new_unique_h
+
+    if common_prefix or common_suffix:
+        retv = os.path.join(common_prefix,
+                '{' + old_unique + ' -> ' + new_unique + '}',
+                common_suffix)
+        retv = retv.rstrip(os.path.sep)
+    else:
+        retv = old_path + ' -> ' + new_path
+
+    return retv
+
 class Error(Exception):
     pass
 
@@ -335,12 +363,8 @@ class Repository:
         for delta in git_diff.deltas:
             if delta.old_file.path == delta.new_file.path:
                 path_info = delta.old_file.path
-            elif common_path := os.path.commonpath([delta.old_file.path, delta.new_file.path]):
-                old_unique = delta.old_file.path[len(common_path):]
-                new_unique = delta.new_file.path[len(common_path):]
-                path_info = common_path + '{' + old_unique + ' -> ' + new_unique + '}'
             else:
-                path_info = delta.old_file.path + ' -> ' + delta.new_file.path
+                path_info = format_path_change(delta.old_file.path, delta.new_file.path)
 
             if delta.similarity != 100 and delta.status != pygit2.GIT_DELTA_ADDED:
                 old_blob = self.git.get(delta.old_file.id)
