@@ -255,7 +255,7 @@ class Repository:
             oid = self.git.create_blob((digest + '\n').encode('utf-8'))
             self.git.index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_BLOB))
         else:
-            self.git.index.remove(path)
+            self.git.index.remove_all([path])
 
     def _add_tree(self, path, tree):
         for item in tree:
