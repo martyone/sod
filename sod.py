@@ -171,8 +171,7 @@ class Error(Exception):
 class Repository:
     def __init__(self, path):
         self.path = path
-        self.data_dir = os.path.dirname(path)
-        self.git = pygit2.Repository(self.path)
+        self.git = pygit2.Repository(os.path.join(self.path, SOD_DIR))
 
     @staticmethod
     def initialize(path):
@@ -223,14 +222,11 @@ class Repository:
         assert len(trees) == 1
         assert top_dir in trees
 
-        work_tree_oid = trees.pop(top_dir)
-        logger.debug('work tree: %s', work_tree_oid)
-
-        return work_tree_oid
+        return trees.pop(top_dir)
 
     def stage(self, paths=[]):
         if not paths:
-            root = self.build_tree(self.data_dir)
+            root = self.build_tree(self.path)
             if not root:
                 root = self.git.TreeBuilder().write()
 
@@ -321,7 +317,7 @@ class Repository:
         return diff
 
     def diff_not_staged(self, rehash=False):
-        work_tree_oid = self.build_tree(self.data_dir, rehash)
+        work_tree_oid = self.build_tree(self.path, rehash)
         work_tree = self.git.get(work_tree_oid)
         diff = self.git.index.diff_to_tree(work_tree, flags=pygit2.GIT_DIFF_REVERSE)
         diff.find_similar()
@@ -381,9 +377,9 @@ class DiscoveredRepository(Repository):
     def __init__(self):
         root_dir = find_upward(os.getcwd(), SOD_DIR, test=os.path.isdir)
         if not root_dir:
-            raise click.ClickException('Not a sod managed tree')
+            raise click.ClickException('Not a sod repository')
 
-        super().__init__(os.path.join(root_dir, SOD_DIR))
+        super().__init__(root_dir)
 
 pass_repository = click.make_pass_decorator(DiscoveredRepository, ensure=True)
 
