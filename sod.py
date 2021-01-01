@@ -437,6 +437,7 @@ def log(repository, abbrev):
     for commit in repository.git.walk(head):
         if commit.parents:
             diff = commit.tree.diff_to_tree(commit.parents[0].tree, swap=True)
+            diff.find_similar()
         else:
             diff = commit.tree.diff_to_tree(swap=True)
 
