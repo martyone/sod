@@ -186,11 +186,6 @@ class Repository:
 
         git.config['core.quotePath'] = False
 
-        empty_tree_oid = git.TreeBuilder().write()
-        git.create_commit('refs/heads/master',
-                FAKE_SIGNATURE, FAKE_SIGNATURE,
-                'Empty initial commit', empty_tree_oid, [])
-
     def build_tree(self, top_dir):
         trees = {}
 
@@ -272,21 +267,30 @@ class Repository:
                 self._add_tree(item_path, self.git.get(item.id))
 
     def reset(self, paths=[]):
-        head = self.git.get(self.git.head.target)
+        try:
+            head = self.git.get(self.git.head.target)
+        except pygit2.GitError:
+            head = None
+
+        if head:
+            head_tree = head.tree
+        else:
+            empty_tree_oid = self.git.TreeBuilder().write()
+            head_tree = self.git.get(empty_tree_oid)
 
         if not paths:
-            self.git.index.read_tree(head.tree)
+            self.git.index.read_tree(head_tree)
         else:
             for path in paths:
-                self._reset(path, head)
+                self._reset(path, head_tree)
 
         self.git.index.write()
 
-    def _reset(self, path, commit):
+    def _reset(self, path, tree):
         self.git.index.remove_all([path])
 
         try:
-            obj = commit.tree[path]
+            obj = tree[path]
         except KeyError:
             return
 
@@ -294,6 +298,35 @@ class Repository:
             self._add_tree(path, obj)
         else:
             self.git.index.add(pygit2.IndexEntry(path, obj.oid, obj.filemode))
+
+    def diff_staged(self):
+        try:
+            head = self.git.get(self.git.head.target)
+        except pygit2.GitError:
+            head = None
+
+        if head:
+            diff_cached = self.git.index.diff_to_tree(head.tree)
+            diff_cached.find_similar()
+        else:
+            empty_tree_oid = self.git.TreeBuilder().write()
+            empty_tree = self.git.get(empty_tree_oid)
+            diff_cached = self.git.index.diff_to_tree(empty_tree)
+
+        return diff_cached
+
+    def diff_not_staged(self):
+        work_tree_oid = self.build_tree(self.data_dir)
+        if not work_tree_oid:
+            logger.error('empty tree')
+            return 1
+
+        logger.debug('work tree: %s', work_tree_oid)
+        work_tree = self.git.get(work_tree_oid)
+        diff = self.git.index.diff_to_tree(work_tree, flags=pygit2.GIT_DIFF_REVERSE)
+        diff.find_similar()
+
+        return diff
 
     def print_status(self, git_diff, abbreviate=True):
         for delta in git_diff.deltas:
@@ -322,9 +355,19 @@ class Repository:
                 path_info=path_info))
 
     def commit(self, message):
-        parent, ref = self.git.resolve_refish(refish=self.git.head.name)
-        self.git.create_commit(ref.name, FAKE_SIGNATURE, FAKE_SIGNATURE,
-                message, self.git.index.write_tree(), [parent.oid])
+        if not self.diff_staged():
+            raise Error('No changes staged for commit')
+
+        try:
+            parent, ref = self.git.resolve_refish(self.git.head.name)
+            parents = [parent.oid]
+            ref_name = ref.name
+        except pygit2.GitError:
+            parents = []
+            ref_name = 'refs/heads/master'
+
+        self.git.create_commit(ref_name, FAKE_SIGNATURE, FAKE_SIGNATURE,
+                message, self.git.index.write_tree(), parents)
 
 class ErrorHandlingGroup(click.Group):
     def __call__(self, *args, **kwargs):
@@ -358,17 +401,10 @@ def init():
 @click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
 @pass_repository
 def status(repository, staged, abbrev):
+    diff_cached = repository.diff_staged()
+
     if not staged:
-        work_tree_oid = repository.build_tree(repository.data_dir)
-        if not work_tree_oid:
-            logger.error('empty tree')
-            return 1
-
-        logger.debug('work tree: %s', work_tree_oid)
-
-    head = repository.git.get(repository.git.head.target)
-    diff_cached = repository.git.index.diff_to_tree(head.tree)
-    diff_cached.find_similar()
+        diff_not_staged = repository.diff_not_staged()
 
     print('Changes staged for commit:')
     repository.print_status(diff_cached, abbreviate=abbrev)
@@ -376,10 +412,7 @@ def status(repository, staged, abbrev):
     if not staged:
         print('')
         print('Changes not staged for commit:')
-        work_tree = repository.git.get(work_tree_oid)
-        diff = repository.git.index.diff_to_tree(work_tree, flags=pygit2.GIT_DIFF_REVERSE)
-        diff.find_similar()
-        repository.print_status(diff, abbreviate=abbrev)
+        repository.print_status(diff_not_staged, abbreviate=abbrev)
 
 @cli.command()
 @click.argument('path', nargs=-1)
@@ -403,7 +436,12 @@ def commit(repository, message):
 @click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
 @pass_repository
 def log(repository, abbrev):
-    for commit in repository.git.walk(repository.git.head.target):
+    try:
+        head = repository.git.head.target
+    except pygit2.GitError:
+        raise Error('No commit found')
+
+    for commit in repository.git.walk(head):
         if commit.parents:
             diff = commit.tree.diff_to_tree(commit.parents[0].tree, swap=True)
         else:
