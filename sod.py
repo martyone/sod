@@ -95,7 +95,7 @@ def digest_for(path, rehash=False):
     if not rehash:
         try:
             cached_digest = os.getxattr(path, ATTR_DIGEST)
-            version, timestamp, algorithm, digest = cached_digest.decode('utf-8').split(':')
+            version, timestamp, algorithm, digest = cached_digest.decode().split(':')
         except:
             pass
         else:
@@ -116,7 +116,7 @@ def digest_for(path, rehash=False):
 
         with temporarily_writable(path, stat=stat):
             try:
-                os.setxattr(path, ATTR_DIGEST, cached_digest.encode('utf-8'))
+                os.setxattr(path, ATTR_DIGEST, cached_digest.encode())
             except:
                 logger.debug('Failed to cache digest for %s', path)
                 pass
@@ -215,7 +215,7 @@ class Repository:
                 item_count += 1
             for name in files:
                 digest = digest_for(os.path.join(root, name), rehash)
-                oid = self.git.create_blob((digest + '\n').encode('utf-8'))
+                oid = self.git.create_blob((digest + '\n').encode())
                 builder.insert(name, oid, pygit2.GIT_FILEMODE_BLOB)
                 item_count += 1
             for name in symlinks:
@@ -263,7 +263,7 @@ class Repository:
             self._add_tree(path, self.git.get(oid))
         elif os.path.isfile(path):
             digest = digest_for(path)
-            oid = self.git.create_blob((digest + '\n').encode('utf-8'))
+            oid = self.git.create_blob((digest + '\n').encode())
             self.git.index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_BLOB))
         else:
             self.git.index.remove_all([path])
@@ -344,7 +344,7 @@ class Repository:
 
             if delta.similarity != 100 and delta.status != pygit2.GIT_DELTA_ADDED:
                 old_blob = self.git.get(delta.old_file.id)
-                old_digest = old_blob.data.decode('utf-8').strip()
+                old_digest = old_blob.data.decode().strip()
             else:
                 old_digest = '-'
 
