@@ -69,11 +69,11 @@ def digest_for(path, rehash=False):
     if not rehash:
         try:
             cached_digest = os.getxattr(path, ATTR_DIGEST)
-            version, timestamp, digest = cached_digest.decode('utf-8').split(':')
+            version, timestamp, algorithm, digest = cached_digest.decode('utf-8').split(':')
         except:
             pass
         else:
-            if int(version) != ATTR_DIGEST_VERSION:
+            if int(version) != ATTR_DIGEST_VERSION or algorithm != 'sha1':
                 logger.debug('Found incompatible cached digest for %s', path)
                 digest = None
             elif int(timestamp) < stat.st_mtime_ns:
@@ -85,7 +85,7 @@ def digest_for(path, rehash=False):
     if not digest:
         logger.debug('Computing digest for %s', path)
         digest = hash_file(path)
-        cached_digest = ':'.join([str(ATTR_DIGEST_VERSION), str(stat.st_mtime_ns), digest])
+        cached_digest = ':'.join([str(ATTR_DIGEST_VERSION), str(stat.st_mtime_ns), 'sha1', digest])
 
         was_writable = stat.st_mode & stat_m.S_IWUSR
         if not was_writable:
