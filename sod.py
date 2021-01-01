@@ -452,16 +452,3 @@ def log(repository, abbrev):
         print('')
         repository.print_status(diff, abbreviate=abbrev)
         print('')
-
-@cli.command()
-@pass_repository
-def test(repository):
-    root = repository.build_tree(repository.data_dir)
-
-    if not root:
-        logger.error('empty tree')
-        return 1
-
-    repository.git.index.read_tree(root)
-    repository.git.index.write()
-    logger.info("tree: %s", root)
