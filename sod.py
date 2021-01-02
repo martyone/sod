@@ -188,8 +188,6 @@ def format_path_change(old_path, new_path):
     while True:
         old_unique_h, old_unique_t = os.path.split(old_unique)
         new_unique_h, new_unique_t = os.path.split(new_unique)
-        logger.debug('yyy1 %s, %s', old_unique_h, old_unique_t)
-        logger.debug('yyy2 %s, %s', new_unique_h, new_unique_t)
         if old_unique_t != new_unique_t:
             break
         common_suffix = os.path.join(old_unique_t, common_suffix)
