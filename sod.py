@@ -276,7 +276,9 @@ class Repository:
 
         self.git.index.write()
 
-    def _add(self, path):
+    def _add(self, path, index=None, rehash=False):
+        if index == None:
+            index = self.git.index
         if os.path.islink(path):
             try:
                 target = os.readlink(path)
@@ -284,25 +286,35 @@ class Repository:
                 logger.warning('Failed to read symlink: %s: %s', path, e)
                 return
             oid = self.git.create_blob(target)
-            self.git.index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_LINK))
+            index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_LINK))
         elif os.path.isdir(path):
-            self.git.index.remove_all([path])
-            oid = self._build_tree(path)
-            self._add_tree(path, self.git.get(oid))
+            index.remove_all([path])
+            oid = self._build_tree(path, rehash)
+            self._add_tree(path, self.git.get(oid), index)
         elif os.path.isfile(path):
-            digest = digest_for(path)
+            digest = digest_for(path, rehash)
             oid = self.git.create_blob((digest + '\n').encode())
-            self.git.index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_BLOB))
+            index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_BLOB))
         else:
-            self.git.index.remove_all([path])
+            index.remove_all([path])
 
-    def _add_tree(self, path, tree):
+    def _add_tree(self, path, tree, index=None):
+        if index == None:
+            index = self.git.index
         for item in tree:
             item_path = os.path.join(path, item.name)
             if item.filemode != pygit2.GIT_FILEMODE_TREE:
-                self.git.index.add(pygit2.IndexEntry(item_path, item.id, item.filemode))
+                index.add(pygit2.IndexEntry(item_path, item.id, item.filemode))
             else:
-                self._add_tree(item_path, self.git.get(item.id))
+                self._add_tree(item_path, self.git.get(item.id), index)
+
+    def _add_object(self, path, obj, index=None):
+        if index == None:
+            index = self.git.index
+        if obj.filemode != pygit2.GIT_FILEMODE_TREE:
+            index.add(pygit2.IndexEntry(path, obj.id, obj.filemode))
+        else:
+            self._add_tree(path, obj, index)
 
     def reset(self, paths=[]):
         try:
@@ -336,28 +348,67 @@ class Repository:
         else:
             self.git.index.add(pygit2.IndexEntry(path, obj.oid, obj.filemode))
 
-    def diff_staged(self):
+    def diff_staged(self, paths=[]):
         try:
             head = self.git.get(self.git.head.target)
         except pygit2.GitError:
             head = None
 
-        if head:
-            diff = self.git.index.diff_to_tree(head.tree)
+        if not paths:
+            if head:
+                diff = self.git.index.diff_to_tree(head.tree)
+                diff.find_similar()
+            else:
+                empty_tree = self.git.get(self.EMPTY_TREE_OID)
+                diff = self.git.index.diff_to_tree(empty_tree)
+        else:
+            if head:
+                old_tree = head.tree
+            else:
+                old_tree = self.git.get(self.EMPTY_TREE_OID)
+
+            new_tree = self.git.get(self.git.index.write_tree())
+
+            old_tree = self._filter_tree(old_tree, paths)
+            new_tree = self._filter_tree(new_tree, paths)
+
+            diff = old_tree.diff_to_tree(new_tree)
+            diff.find_similar()
+
+        return diff
+
+    def diff_not_staged(self, paths=[], rehash=False):
+        if not paths:
+            tmp_tree_oid = self._build_tree(self.path, rehash)
+            tmp_tree = self.git.get(tmp_tree_oid)
+            diff = self.git.index.diff_to_tree(tmp_tree, flags=pygit2.GIT_DIFF_REVERSE)
             diff.find_similar()
         else:
-            empty_tree = self.git.get(self.EMPTY_TREE_OID)
-            diff = self.git.index.diff_to_tree(empty_tree)
+            old_tree = self.git.get(self.git.index.write_tree())
+            old_tree = self._filter_tree(old_tree, paths)
+
+            new_index = pygit2.Index()
+            for path in paths:
+                self._add(path, new_index, rehash)
+            new_tree = self.git.get(new_index.write_tree(self.git))
+
+            diff = old_tree.diff_to_tree(new_tree)
+            diff.find_similar()
 
         return diff
 
-    def diff_not_staged(self, rehash=False):
-        tmp_tree_oid = self._build_tree(self.path, rehash)
-        tmp_tree = self.git.get(tmp_tree_oid)
-        diff = self.git.index.diff_to_tree(tmp_tree, flags=pygit2.GIT_DIFF_REVERSE)
-        diff.find_similar()
+    def _filter_tree(self, tree, paths):
+        index = pygit2.Index()
 
-        return diff
+        for path in paths:
+            try:
+                obj = tree[path]
+            except KeyError as e:
+                pass
+            else:
+                self._add_object(path, obj, index)
+
+        return self.git.get(index.write_tree(self.git))
 
     def format_diff(self, git_diff, abbreviate=True):
         for delta in git_diff.deltas:
@@ -441,12 +492,13 @@ def init():
 @click.option('--staged', is_flag=True, help='Only check the index')
 @click.option('-r', '--rehash', is_flag=True, help='Do not use cached digests')
 @click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
+@click.argument('path', nargs=-1)
 @pass_repository
-def status(repository, staged, rehash, abbrev):
-    diff_cached = repository.diff_staged()
+def status(repository, staged, rehash, abbrev, path):
+    diff_cached = repository.diff_staged(path)
 
     if not staged:
-        diff_not_staged = repository.diff_not_staged(rehash)
+        diff_not_staged = repository.diff_not_staged(path, rehash)
 
     click.echo('Changes staged for commit:')
     click.echo(''.join(repository.format_diff(diff_cached, abbreviate=abbrev)))
