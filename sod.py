@@ -1,12 +1,18 @@
 import click
+from collections import defaultdict
 from contextlib import contextmanager
 from datetime import datetime
+import glob
 import hashlib
 import logging
 import os
 import pygit2
+import re
+import shlex
 import stat as stat_m
+import subprocess
 import sys
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +27,8 @@ ATTR_DIGEST = 'user.sod.digest'
 ATTR_DIGEST_VERSION = 1
 SKIP_TREE_NAMES = {'.snapshots', SOD_DIR}
 SKIP_TREE_FLAGS = {'.git', '.svn', SODIGNORE_FILE}
+DEFAULT_SSH_KEY = '~/.ssh/id_rsa'
+SNAPSHOT_REF_PREFIX = 'refs/snapshots/'
 
 DELTA_STATUS_NAME = {
     pygit2.GIT_DELTA_UNMODIFIED: 'unmodified',
@@ -206,6 +214,19 @@ def format_path_change(old_path, new_path):
 
 class Error(Exception):
     pass
+
+class RemoteCallbacks(pygit2.RemoteCallbacks):
+    def __init__(self, ssh_key):
+        self.ssh_key = ssh_key
+
+    def credentials(self, url, username_from_url, allowed_types):
+        username = username_from_url or os.getusername()
+        if allowed_types & pygit2.credentials.GIT_CREDTYPE_USERNAME:
+            return pygit2.Username(username)
+        elif allowed_types & pygit2.credentials.GIT_CREDTYPE_SSH_KEY:
+            return pygit2.Keypair(username, self.ssh_key + '.pub', self.ssh_key, '')
+        else:
+            return None
 
 class Repository:
     def __init__(self, path):
@@ -430,7 +451,22 @@ class Repository:
                 digest_w=digest_size,
                 path_info=path_info)
 
+    def _snapshot_refs(self):
+        refs = defaultdict(lambda: [])
+
+        for ref_name in self.git.references:
+            if ref_name.startswith(SNAPSHOT_REF_PREFIX):
+                obj = self.git.references[ref_name].peel()
+                refs[obj.id].append(ref_name)
+
+        return refs
+
     def format_log(self, oid, abbreviate=False):
+        refs = self._snapshot_refs()
+
+        head_obj = self.git.references['HEAD'].peel()
+        refs[head_obj.id].insert(0, 'HEAD')
+
         for commit in self.git.walk(oid):
             if commit.parents:
                 diff = commit.tree.diff_to_tree(commit.parents[0].tree, swap=True)
@@ -438,8 +474,15 @@ class Repository:
             else:
                 diff = commit.tree.diff_to_tree(swap=True)
 
-            yield '* {:%c}\n'.format(datetime.fromtimestamp(commit.commit_time))
-            yield '  {}\n'.format(commit.message)
+            if commit.id in refs:
+                decoration = ' (' + ', '.join(refs[commit.id]) + ')'
+            else:
+                decoration = ''
+
+            yield 'commit {}{}\n'.format(commit.id, decoration)
+            yield 'Date: {:%c}\n'.format(datetime.fromtimestamp(commit.commit_time))
+            yield '\n'
+            yield '    {}\n'.format(commit.message)
             yield '\n'
             yield from self.format_diff(diff, abbreviate=abbreviate)
             yield '\n'
@@ -458,6 +501,140 @@ class Repository:
 
         self.git.create_commit(ref_name, FAKE_SIGNATURE, FAKE_SIGNATURE,
                 message, self.git.index.write_tree(), parents)
+
+    def _list_snapshots(self):
+        pattern = re.compile('^sod-snapshot\.([^.]+)\.url-pattern$')
+        for item in self.git.config:
+            match = pattern.search(item.name)
+            if not match:
+                continue
+            name = match.group(1)
+            url_pattern = item.value
+            yield (name, url_pattern)
+
+    def _snapshot_url_pattern_config_key(self, name):
+        return 'sod-snapshot.{}.url-pattern'.format(name)
+
+    def _snapshot_ssh_key_config_key(self, name):
+        return 'sod-snapshot.{}.ssh-key'.format(name)
+
+    def format_snapshot_list(self):
+        for name, url_pattern in self._list_snapshots():
+            yield name + '  ' + url_pattern + '\n'
+
+    def add_snapshot(self, name, url_pattern, ssh_key=None):
+        if '.' in name:
+            raise Error('Snapshot name may not contain dots')
+        try:
+            self._parse_snapshot_url(url_pattern)
+        except Error:
+            raise
+        self.git.config[self._snapshot_url_pattern_config_key(name)] = url_pattern
+        if ssh_key:
+            self.git.config[self._snapshot_ssh_key_config_key(name)] = ssh_key
+
+    def _has_snapshot(self, name):
+        for name_, url_pattern in self._list_snapshots():
+            if name_ == name:
+                return True
+        return False
+
+    def remove_snapshot(self, name):
+        if not self._has_snapshot(name):
+            raise Error('No such snapshot: ' + name)
+        self._remove_snapshot_remotes(name)
+        for key in [
+                self._snapshot_url_pattern_config_key(name),
+                self._snapshot_ssh_key_config_key(name),
+                ]:
+            try:
+                del self.git.config[key]
+            except KeyError:
+                continue
+
+    def _remove_snapshot_remotes(self, name):
+        to_remove = []
+        for remote in self.git.remotes:
+            if remote.name == name or remote.name.startswith(name + '/'):
+                to_remove.append(remote.name)
+        for name in to_remove:
+            self.git.remotes.delete(name)
+
+    def _parse_snapshot_url(self, url):
+        parsed = urlparse(url)
+        if parsed.params:
+            raise Error('Unsupported URL: Parameters must be empty')
+        if parsed.query:
+            raise Error('Unsupported URL: Query must be empty')
+        if parsed.fragment:
+            raise Error('Unsupported URL: Fragment must be empty')
+        if not parsed.path:
+            raise Error('Invalid URL: No path specified')
+
+        if not parsed.scheme or parsed.scheme == 'file':
+            if parsed.netloc:
+                raise Error('Invalid URL: Network location must be empty with the scheme used')
+        elif parsed.scheme == 'ssh':
+            if not parsed.netloc:
+                raise Error('Invalid URL: Netwoek location must not be empty with the scheme used')
+        else:
+            raise Error('Unsupported URL: Unrecognized scheme')
+
+        if '*' in parsed.netloc:
+            raise Error('Unsupported URL: Network location must not contain \'*\'')
+        if parsed.path.count('*') > 1:
+            raise Error('Unsupported URL: Multiple \'*\' in path')
+
+        return (parsed.scheme or 'file', parsed.netloc, parsed.path)
+
+    def _expand_snapshot(self, name):
+        url_pattern = self.git.config[self._snapshot_url_pattern_config_key(name)]
+        scheme, netloc, path_pattern = self._parse_snapshot_url(url_pattern)
+        if '*' not in path_pattern:
+            yield (name, url_pattern)
+            return
+
+        prefix, suffix = path_pattern.split('*', maxsplit=1)
+
+        matching_paths = []
+        if scheme == 'file':
+            matching_paths = glob.glob(path_pattern)
+        elif scheme == 'ssh':
+            remote_command = 'ls -d --quoting-style=shell {}*{}'.format(
+                    shlex.quote(prefix), shlex.quote(suffix))
+            result = subprocess.run(['ssh', netloc, remote_command], capture_output=True)
+            if result.returncode != 0:
+                raise Error('Failed to list remote snapshots: ' + result.stderr.decode())
+            matching_paths = shlex.split(result.stdout.decode())
+        else:
+            assert False
+
+        for path in matching_paths:
+            key = path[len(prefix):-len(suffix)]
+            yield (name + '/' + key), url_pattern.replace('*', key)
+
+    def fetch_snapshots(self, names):
+        if not names:
+            names = [name for name, url_pattern in self._list_snapshots()]
+
+        for name in names:
+            self._fetch_snapshot(name)
+
+    def _fetch_snapshot(self, name):
+        if not self._has_snapshot(name):
+            raise Error('No such snapshot: ' + name)
+        self._remove_snapshot_remotes(name)
+        callbacks = RemoteCallbacks(self._ssh_key_for_snapshot(name))
+        for name, url in self._expand_snapshot(name):
+            remote = self.git.remotes.create(name, url + '/' + SOD_DIR,
+                    'HEAD:' + SNAPSHOT_REF_PREFIX + name)
+            remote.fetch(callbacks=callbacks)
+
+    def _ssh_key_for_snapshot(self, name):
+        try:
+            return self.git.config[self._snapshot_ssh_key_config_key(name)]
+        except KeyError:
+            return os.path.expanduser(DEFAULT_SSH_KEY)
 
 class ErrorHandlingGroup(click.Group):
     def __call__(self, *args, **kwargs):
@@ -533,3 +710,47 @@ def log(repository, abbrev):
         raise Error('No commit found')
 
     click.echo_via_pager(repository.format_log(head, abbreviate=abbrev))
+
+@cli.group()
+def snapshot():
+    pass
+
+@snapshot.command()
+@pass_repository
+def list(repository):
+    click.echo(''.join(repository.format_snapshot_list()))
+
+@snapshot.command()
+@click.argument('name')
+@click.argument('url_pattern')
+@click.option('--ssh-key', 'ssh_key',
+        help='Use the given SSH key instead of {}'.format(DEFAULT_SSH_KEY))
+@pass_repository
+def add(repository, name, url_pattern, ssh_key):
+    repository.add_snapshot(name, url_pattern, ssh_key)
+
+@snapshot.command()
+@click.argument('name')
+@pass_repository
+def remove(repository, name):
+    repository.remove_snapshot(name)
+
+@snapshot.command()
+@click.option('--all', 'fetch_all', is_flag=True, help='Fetch all snapshots')
+@click.argument('name', required=False)
+@pass_repository
+def fetch(repository, fetch_all, name):
+    if name:
+        repository.fetch_snapshots([name])
+    elif fetch_all:
+        repository.fetch_snapshots()
+    else:
+        raise click.BadUsage('No snapshot selected')
+
+@cli.command()
+@click.argument('path')
+@click.argument('digest', required=False)
+@click.option('--snapshot', 'snapshot', help='Restore using the given snapshot')
+@pass_repository
+def restore(repository, path, digest, snapshot_name):
+    repository.restore(path, digest, snapshot_name)
