@@ -6,6 +6,7 @@ import glob
 import hashlib
 import logging
 import os
+import pycurl
 import pygit2
 import re
 import shlex
@@ -636,6 +637,150 @@ class Repository:
         except KeyError:
             return os.path.expanduser(DEFAULT_SSH_KEY)
 
+    def restore(self, path, refish, snapshot_name):
+        try:
+            head = self.git.get(self.git.head.target)
+        except pygit2.GitError:
+            raise Error('No commit found')
+
+        if os.path.exists(path):
+            raise Error('File exists - refusing to overwrite: ' + path)
+
+        if refish:
+            try:
+                commit = sefl.git.get(self.git.resolve_refish(refish)[0])
+            except pygit2.GitError:
+                raise Error('Bad revision: ' + refish)
+        else:
+            commit = head
+
+        try:
+            obj = commit.tree[path]
+        except KeyError:
+            raise Error('No such file known to sod. Try different revision?')
+
+        if obj.filemode == pygit2.GIT_FILEMODE_TREE:
+            raise Error('Unsupported operation. Cannot restore directories')
+
+        if obj.filemode == pygit2.GIT_FILEMODE_LINK:
+            target = obj.data
+            try:
+                os.symlink(target, path)
+            except OSError as e:
+                raise Error('Failed to create symlink: ' + str(e))
+            return
+
+        assert obj.filemode == pygit2.GIT_FILEMODE_BLOB
+
+        snapshot_refs = self._snapshot_refs()
+
+        matching_snapshot_refs = []
+        for ancestor in self.git.walk(commit.id):
+            if ancestor.id not in snapshot_refs:
+                continue
+
+            ancestor_path = self._find_object(ancestor.tree, obj.id, path_hint=path)
+            if ancestor_path:
+                for ref in snapshot_refs[ancestor.id]:
+                    matching_snapshot_refs.append((ref, ancestor_path))
+
+        if not matching_snapshot_refs:
+            raise Error('No snapshot seems to contain the file in the desired revision')
+
+        excluded_snapshot_refs = []
+        restored = False
+
+        for ref, ancestor_path in matching_snapshot_refs:
+            if snapshot_name and not self._ref_matches_snapshot(ref, snapshot_name):
+                excluded_snapshot_refs.append(ref)
+                continue
+
+            logger.info('Trying to restore from ' + ref)
+            try:
+                self._restore(ref, ancestor_path, path)
+            except Error as e:
+                logger.warning('Failed to restore from ' + ref + ': ' + str(e))
+            else:
+                restored = True
+                break
+
+        if not restored:
+            if excluded_snapshot_refs:
+                logger.info('Also available from the following skipped snapshots:')
+                for snap in excluded_snapshot_refs:
+                    logger.info('  ' + snap)
+            raise Error('Could not restore')
+
+    def _ref_matches_snapshot(self, ref, snapshot_name):
+        return ref == SNAPSHOT_REF_PREFIX + snapshot_name \
+                or ref.startswith(SNAPSHOT_REF_PREFIX + snapshot_name + '/')
+
+    def _find_object(self, tree, oid, path_hint):
+        if path_hint:
+            try:
+                obj = tree[path_hint]
+            except KeyError:
+                pass
+            if obj.id == oid:
+                return path_hint
+
+        for obj in tree:
+            if obj.type == pygit2.GIT_FILEMODE_TREE:
+                path = self._find(obj, oid, None)
+                if path:
+                    return obj.name + '/' + path
+            elif obj.id == oid:
+                return obj.name
+
+        return None
+
+    def _restore(self, snapshot_ref, path, destination_path):
+        assert snapshot_ref.startswith(SNAPSHOT_REF_PREFIX)
+        name = snapshot_ref[len(SNAPSHOT_REF_PREFIX):]
+        url, ssh_key = self._snapshot_config(name)
+        url += '/' + path
+
+        self._curl(url, destination_path, ssh_key)
+
+    def _curl(self, url, destination_path, ssh_key=None):
+        if url.startswith('ssh://'):
+            url = url.replace('ssh', 'scp', 1)
+
+        try:
+            with open(destination_path, 'wb') as destination:
+                curl = pycurl.Curl()
+                curl.setopt(pycurl.URL, url)
+                curl.setopt(pycurl.WRITEDATA, destination)
+                if ssh_key:
+                    curl.setopt(pycurl.SSH_PRIVATE_KEY, ssh_key)
+                curl.perform()
+                curl.close()
+        except Exception as e:
+            try:
+                os.remove(destination_path)
+            except:
+                pass
+            raise Error('Error downloading file: ' + str(e))
+
+    def _snapshot_config(self, name):
+        try:
+            name, key = name.split('/', maxsplit=1)
+        except ValueError:
+            key = None
+
+        url = self.git.config[self._snapshot_url_pattern_config_key(name)]
+        assert '*' not in url or key
+        if key:
+            url = url.replace('*', key, 1)
+
+        try:
+            ssh_key = self.git.config[self._snapshot_ssh_key_config_key(name)]
+        except KeyError:
+            ssh_key = None
+
+        return (url, ssh_key)
+
+
 class ErrorHandlingGroup(click.Group):
     def __call__(self, *args, **kwargs):
         try:
@@ -749,8 +894,8 @@ def fetch(repository, fetch_all, name):
 
 @cli.command()
 @click.argument('path')
-@click.argument('digest', required=False)
+@click.argument('ref-ish', required=False)
 @click.option('--snapshot', 'snapshot', help='Restore using the given snapshot')
 @pass_repository
-def restore(repository, path, digest, snapshot_name):
-    repository.restore(path, digest, snapshot_name)
+def restore(repository, path, ref_ish, snapshot):
+    repository.restore(path, ref_ish, snapshot)

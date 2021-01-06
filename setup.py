@@ -6,6 +6,7 @@ setup(
     py_modules=['sod'],
     install_requires=[
         'click',
+        'pycurl',
         'pygit2',
     ],
     entry_points='''
