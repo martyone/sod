@@ -591,6 +591,9 @@ class Repository:
             yield (name, url_pattern)
             return
 
+        # Only match directories which look like sod repositories
+        path_pattern += '/' + SOD_DIR
+
         prefix, suffix = path_pattern.split('*', maxsplit=1)
 
         matching_paths = []
