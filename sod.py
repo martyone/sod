@@ -462,7 +462,7 @@ class Repository:
                 diff = commit.tree.diff_to_tree(swap=True)
 
             if commit.id in refs:
-                decoration = ' (' + ', '.join(refs[commit.id]) + ')'
+                decoration = ' (' + ', '.join(self._shorthand_refs(refs[commit.id])) + ')'
             else:
                 decoration = ''
 
@@ -675,11 +675,11 @@ class Repository:
                 excluded_snapshot_refs.append(ref)
                 continue
 
-            logger.info('Trying to restore from ' + ref)
+            logger.info('Trying to restore from ' + self._shorthand_ref(ref))
             try:
                 self._restore(ref, ancestor_path, path)
             except Error as e:
-                logger.warning('Failed to restore from ' + ref + ': ' + str(e))
+                logger.warning('Failed to restore from ' + self._shorthand_ref(ref) + ': ' + str(e))
             else:
                 restored = True
                 break
@@ -687,9 +687,18 @@ class Repository:
         if not restored:
             if excluded_snapshot_refs:
                 logger.info('Also available from the following skipped snapshots:')
-                for snap in excluded_snapshot_refs:
-                    logger.info('  ' + snap)
+                for ref in excluded_snapshot_refs:
+                    logger.info('  ' + self._shorthand_ref(ref))
             raise Error('Could not restore')
+
+    def _shorthand_ref(self, ref):
+        if ref.startswith(SNAPSHOT_REF_PREFIX):
+            return ref[len(SNAPSHOT_REF_PREFIX):]
+        else:
+            return ref
+
+    def _shorthand_refs(self, refs):
+        return [self._shorthand_ref(ref) for ref in refs]
 
     def _ref_matches_snapshot(self, ref, snapshot_name):
         return ref == SNAPSHOT_REF_PREFIX + snapshot_name \
