@@ -6,10 +6,10 @@ import glob
 import hashlib
 import logging
 import os
-import pycurl
 import pygit2
 import re
 import shlex
+import shutil
 import stat as stat_m
 import subprocess
 import sys
@@ -28,7 +28,6 @@ ATTR_DIGEST = 'user.sod.digest'
 ATTR_DIGEST_VERSION = 1
 SKIP_TREE_NAMES = {'.snapshots', SOD_DIR}
 SKIP_TREE_FLAGS = {'.git', '.svn', SODIGNORE_FILE}
-DEFAULT_SSH_KEY = '~/.ssh/id_rsa'
 SNAPSHOT_REF_PREFIX = 'refs/snapshots/'
 
 DELTA_STATUS_NAME = {
@@ -215,19 +214,6 @@ def format_path_change(old_path, new_path):
 
 class Error(Exception):
     pass
-
-class RemoteCallbacks(pygit2.RemoteCallbacks):
-    def __init__(self, ssh_key):
-        self.ssh_key = ssh_key
-
-    def credentials(self, url, username_from_url, allowed_types):
-        username = username_from_url or os.getusername()
-        if allowed_types & pygit2.credentials.GIT_CREDTYPE_USERNAME:
-            return pygit2.Username(username)
-        elif allowed_types & pygit2.credentials.GIT_CREDTYPE_SSH_KEY:
-            return pygit2.Keypair(username, self.ssh_key + '.pub', self.ssh_key, '')
-        else:
-            return None
 
 class Repository:
     def __init__(self, path):
@@ -516,14 +502,11 @@ class Repository:
     def _snapshot_url_pattern_config_key(self, name):
         return 'sod-snapshot.{}.url-pattern'.format(name)
 
-    def _snapshot_ssh_key_config_key(self, name):
-        return 'sod-snapshot.{}.ssh-key'.format(name)
-
     def format_snapshot_list(self):
         for name, url_pattern in self._list_snapshots():
             yield name + '  ' + url_pattern + '\n'
 
-    def add_snapshot(self, name, url_pattern, ssh_key=None):
+    def add_snapshot(self, name, url_pattern):
         if '.' in name:
             raise Error('Snapshot name may not contain dots')
         try:
@@ -531,8 +514,6 @@ class Repository:
         except Error:
             raise
         self.git.config[self._snapshot_url_pattern_config_key(name)] = url_pattern
-        if ssh_key:
-            self.git.config[self._snapshot_ssh_key_config_key(name)] = ssh_key
 
     def _has_snapshot(self, name):
         for name_, url_pattern in self._list_snapshots():
@@ -546,7 +527,6 @@ class Repository:
         self._remove_snapshot_remotes(name)
         for key in [
                 self._snapshot_url_pattern_config_key(name),
-                self._snapshot_ssh_key_config_key(name),
                 ]:
             try:
                 del self.git.config[key]
@@ -624,18 +604,18 @@ class Repository:
     def _fetch_snapshot(self, name):
         if not self._has_snapshot(name):
             raise Error('No such snapshot: ' + name)
+
         self._remove_snapshot_remotes(name)
-        callbacks = RemoteCallbacks(self._ssh_key_for_snapshot(name))
+
         for name, url in self._expand_snapshot(name):
             remote = self.git.remotes.create(name, url + '/' + SOD_DIR,
                     'HEAD:' + SNAPSHOT_REF_PREFIX + name)
-            remote.fetch(callbacks=callbacks)
 
-    def _ssh_key_for_snapshot(self, name):
-        try:
-            return self.git.config[self._snapshot_ssh_key_config_key(name)]
-        except KeyError:
-            return os.path.expanduser(DEFAULT_SSH_KEY)
+            logger.info('Fetching %s', name)
+            result = subprocess.run(['git', '--git-dir', self.git.path, 'fetch', name],
+                capture_output=True)
+            if result.returncode != 0:
+                raise Error('Failed to fetch ' + name + ': ' + result.stderr.decode())
 
     def restore(self, path, refish, snapshot_name):
         try:
@@ -737,30 +717,25 @@ class Repository:
     def _restore(self, snapshot_ref, path, destination_path):
         assert snapshot_ref.startswith(SNAPSHOT_REF_PREFIX)
         name = snapshot_ref[len(SNAPSHOT_REF_PREFIX):]
-        url, ssh_key = self._snapshot_config(name)
+        url = self._snapshot_config(name)
         url += '/' + path
 
-        self._curl(url, destination_path, ssh_key)
+        self._download(url, destination_path)
 
-    def _curl(self, url, destination_path, ssh_key=None):
-        if url.startswith('ssh://'):
-            url = url.replace('ssh', 'scp', 1)
-
-        try:
-            with open(destination_path, 'wb') as destination:
-                curl = pycurl.Curl()
-                curl.setopt(pycurl.URL, url)
-                curl.setopt(pycurl.WRITEDATA, destination)
-                if ssh_key:
-                    curl.setopt(pycurl.SSH_PRIVATE_KEY, ssh_key)
-                curl.perform()
-                curl.close()
-        except Exception as e:
+    def _download(self, url, destination_path):
+        scheme, netloc, path = self._parse_snapshot_url(url)
+        if not scheme or scheme == 'file':
+            assert not netloc
             try:
-                os.remove(destination_path)
-            except:
-                pass
-            raise Error('Error downloading file: ' + str(e))
+                shutil.copyfile(path, destination_path, follow_symlinks=False)
+            except Exception as e:
+                raise Error('Failed to copy file: ' + str(e))
+        elif scheme == 'ssh':
+            result = subprocess.run(['scp', netloc + ':' + path, destination_path])
+            if result.returncode != 0:
+                raise Error('Download failed: ' + result.stderr.decode())
+        else:
+            assert False
 
     def _snapshot_config(self, name):
         try:
@@ -773,12 +748,7 @@ class Repository:
         if key:
             url = url.replace('*', key, 1)
 
-        try:
-            ssh_key = self.git.config[self._snapshot_ssh_key_config_key(name)]
-        except KeyError:
-            ssh_key = None
-
-        return (url, ssh_key)
+        return url
 
 
 class ErrorHandlingGroup(click.Group):
@@ -868,11 +838,9 @@ def list(repository):
 @snapshot.command()
 @click.argument('name')
 @click.argument('url_pattern')
-@click.option('--ssh-key', 'ssh_key',
-        help='Use the given SSH key instead of {}'.format(DEFAULT_SSH_KEY))
 @pass_repository
-def add(repository, name, url_pattern, ssh_key):
-    repository.add_snapshot(name, url_pattern, ssh_key)
+def add(repository, name, url_pattern):
+    repository.add_snapshot(name, url_pattern)
 
 @snapshot.command()
 @click.argument('name')
