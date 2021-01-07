@@ -890,7 +890,7 @@ def fetch(repository, fetch_all, name):
     elif fetch_all:
         repository.fetch_snapshots()
     else:
-        raise click.BadUsage('No snapshot selected')
+        raise click.UsageError('No snapshot selected')
 
 @cli.command()
 @click.argument('path')
