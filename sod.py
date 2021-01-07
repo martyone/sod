@@ -30,6 +30,20 @@ SKIP_TREE_NAMES = {'.snapshots', SOD_DIR}
 SKIP_TREE_FLAGS = {'.git', '.svn', SODIGNORE_FILE}
 SNAPSHOT_REF_PREFIX = 'refs/snapshots/'
 
+DIFF_FLAGS = pygit2.GIT_DIFF_INCLUDE_UNMODIFIED
+DIFF_FIND_SIMILAR_FLAGS = (
+        pygit2.GIT_DIFF_FIND_RENAMES
+        | pygit2.GIT_DIFF_FIND_COPIES
+        | pygit2.GIT_DIFF_FIND_COPIES_FROM_UNMODIFIED
+        | pygit2.GIT_DIFF_FIND_EXACT_MATCH_ONLY
+        | pygit2.GIT_DIFF_FIND_REMOVE_UNMODIFIED
+        )
+
+# FIXME The above flags do not work as expected. Copies are not detected,
+# unmodified entries are not removed.
+DIFF_FLAGS = 0
+DIFF_FIND_SIMILAR_FLAGS = 0
+
 DELTA_STATUS_NAME = {
     pygit2.GIT_DELTA_UNMODIFIED: 'unmodified',
     pygit2.GIT_DELTA_ADDED: 'added',
@@ -362,8 +376,8 @@ class Repository:
 
         if not paths:
             if head:
-                diff = self.git.index.diff_to_tree(head.tree)
-                diff.find_similar()
+                diff = self.git.index.diff_to_tree(head.tree, flags=DIFF_FLAGS)
+                diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
             else:
                 empty_tree = self.git.get(self.EMPTY_TREE_OID)
                 diff = self.git.index.diff_to_tree(empty_tree)
@@ -378,8 +392,8 @@ class Repository:
             old_tree = self._filter_tree(old_tree, paths)
             new_tree = self._filter_tree(new_tree, paths)
 
-            diff = old_tree.diff_to_tree(new_tree)
-            diff.find_similar()
+            diff = old_tree.diff_to_tree(new_tree, flags=DIFF_FLAGS)
+            diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
 
         return diff
 
@@ -387,8 +401,8 @@ class Repository:
         if not paths:
             tmp_tree_oid = self._build_tree(self.path, rehash)
             tmp_tree = self.git.get(tmp_tree_oid)
-            diff = self.git.index.diff_to_tree(tmp_tree, flags=pygit2.GIT_DIFF_REVERSE)
-            diff.find_similar()
+            diff = self.git.index.diff_to_tree(tmp_tree, flags=DIFF_FLAGS|pygit2.GIT_DIFF_REVERSE)
+            diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
         else:
             old_tree = self.git.get(self.git.index.write_tree())
             old_tree = self._filter_tree(old_tree, paths)
@@ -398,8 +412,8 @@ class Repository:
                 self._add(path, new_index, rehash)
             new_tree = self.git.get(new_index.write_tree(self.git))
 
-            diff = old_tree.diff_to_tree(new_tree)
-            diff.find_similar()
+            diff = old_tree.diff_to_tree(new_tree, flags=DIFF_FLAGS)
+            diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
 
         return diff
 
@@ -456,8 +470,8 @@ class Repository:
 
         for commit in self.git.walk(oid):
             if commit.parents:
-                diff = commit.tree.diff_to_tree(commit.parents[0].tree, swap=True)
-                diff.find_similar()
+                diff = commit.tree.diff_to_tree(commit.parents[0].tree, swap=True, flags=DIFF_FLAGS)
+                diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
             else:
                 diff = commit.tree.diff_to_tree(swap=True)
 
