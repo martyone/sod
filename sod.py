@@ -521,8 +521,8 @@ class Repository:
             yield name + '  ' + url_pattern + '\n'
 
     def add_snapshot(self, name, url_pattern):
-        if '.' in name:
-            raise Error('Snapshot name may not contain dots')
+        if '/' in name:
+            raise Error('Snapshot name may not contain slashes')
         if self._snapshot_url_pattern_config_key(name) in self.git.config:
             raise Error('Snapshot of this name already exists')
         try:
