@@ -523,6 +523,8 @@ class Repository:
     def add_snapshot(self, name, url_pattern):
         if '.' in name:
             raise Error('Snapshot name may not contain dots')
+        if self._snapshot_url_pattern_config_key(name) in self.git.config:
+            raise Error('Snapshot of this name already exists')
         try:
             self._parse_snapshot_url(url_pattern)
         except Error:
