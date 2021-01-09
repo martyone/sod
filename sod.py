@@ -233,6 +233,8 @@ class Repository:
     def __init__(self, path):
         self.path = path
         self.git = pygit2.Repository(os.path.join(self.path, SOD_DIR))
+        self.snapshot_groups = SnapshotGroups(self)
+        self.snapshots = Snapshots(self)
         self.EMPTY_TREE_OID = self.git.TreeBuilder().write()
 
     @staticmethod
@@ -452,21 +454,19 @@ class Repository:
                 digest_w=digest_size,
                 path_info=path_info)
 
-    def _snapshot_refs(self):
-        refs = defaultdict(lambda: [])
+    def _snapshots_by_oid(self):
+        snapshots = defaultdict(lambda: [])
 
-        for ref_name in self.git.references:
-            if ref_name.startswith(SNAPSHOT_REF_PREFIX):
-                obj = self.git.references[ref_name].peel()
-                refs[obj.id].append(ref_name)
+        for snapshot in self.snapshots:
+            obj = self.git.references[snapshot.reference].peel()
+            snapshots[obj.id].append(snapshot)
 
-        return refs
+        return snapshots
 
     def format_log(self, oid, abbreviate=False):
-        refs = self._snapshot_refs()
+        snapshots = self._snapshots_by_oid()
 
         head_obj = self.git.references['HEAD'].peel()
-        refs[head_obj.id].insert(0, 'HEAD')
 
         for commit in self.git.walk(oid):
             if commit.parents:
@@ -475,8 +475,19 @@ class Repository:
             else:
                 diff = commit.tree.diff_to_tree(swap=True)
 
-            if commit.id in refs:
-                decoration = ' (' + ', '.join(self._shorthand_refs(refs[commit.id])) + ')'
+            try:
+                matching_snapshots = snapshots[commit.id]
+            except KeyError:
+                pass
+
+            refs = []
+            if matching_snapshots:
+                refs = [snapshot.shorthand_reference for snapshot in matching_snapshots]
+            if commit.id == head_obj.id:
+                refs.insert(0, 'HEAD')
+
+            if refs:
+                decoration = ' (' + ', '.join(refs) + ')'
             else:
                 decoration = ''
 
@@ -503,61 +514,197 @@ class Repository:
         self.git.create_commit(ref_name, FAKE_SIGNATURE, FAKE_SIGNATURE,
                 message, self.git.index.write_tree(), parents)
 
-    def _list_snapshots(self):
+    def format_snapshot_list(self):
+        for group in self.snapshot_groups:
+            yield group.name + '  ' + group.url_pattern + '\n'
+
+    def restore(self, path, refish, snapshot_name):
+        try:
+            head = self.git.get(self.git.head.target)
+        except pygit2.GitError:
+            raise Error('No commit found')
+
+        if os.path.exists(path):
+            raise Error('File exists - refusing to overwrite: ' + path)
+
+        if refish:
+            try:
+                snapshot = self.snapshots[refish]
+            except KeyError:
+                pass
+            else:
+                refish = snapshot.reference
+
+            try:
+                commit = self.git.resolve_refish(refish)[0]
+            except pygit2.GitError:
+                raise Error('Bad revision: ' + refish)
+        else:
+            commit = head
+
+        try:
+            obj = commit.tree[path]
+        except KeyError:
+            raise Error('No such file known to sod. Try different revision?')
+
+        if obj.filemode == pygit2.GIT_FILEMODE_TREE:
+            raise Error('Unsupported operation. Cannot restore directories')
+
+        if obj.filemode == pygit2.GIT_FILEMODE_LINK:
+            target = obj.data
+            try:
+                os.symlink(target, path)
+            except OSError as e:
+                raise Error('Failed to create symlink: ' + str(e))
+            return
+
+        assert obj.filemode == pygit2.GIT_FILEMODE_BLOB
+
+        snapshots_by_oid = self._snapshots_by_oid()
+
+        matching_snapshots = []
+        for ancestor in self.git.walk(commit.id):
+            if ancestor.id not in snapshots_by_oid:
+                continue
+
+            ancestor_path = self._find_object(ancestor.tree, obj.id, path_hint=path)
+            if ancestor_path:
+                for snapshot in snapshots_by_oid[ancestor.id]:
+                    matching_snapshots.append((snapshot, ancestor_path))
+
+        if not matching_snapshots:
+            raise Error('No snapshot seems to contain the file in the desired revision')
+
+        excluded_snapshots = []
+        restored = False
+
+        for snapshot, ancestor_path in matching_snapshots:
+            if snapshot_name and snapshot.group_name != snapshot_name:
+                excluded_snapshots.append(snapshot)
+                continue
+
+            logger.info('Trying to restore from ' + snapshot.name)
+            try:
+                snapshot.restore(ancestor_path, path)
+            except Error as e:
+                logger.warning('Failed to restore from ' + snapshot.name + ': ' + str(e))
+            else:
+                restored = True
+                break
+
+        if not restored:
+            if excluded_snapshots:
+                logger.info('Also available from the following skipped snapshots:')
+                for snapshot in excluded_snapshots:
+                    logger.info('  ' + snapshot.name)
+            raise Error('Could not restore')
+
+    def _find_object(self, tree, oid, path_hint):
+        if path_hint:
+            try:
+                obj = tree[path_hint]
+            except KeyError:
+                pass
+            if obj.id == oid:
+                return path_hint
+
+        for obj in tree:
+            if obj.type == pygit2.GIT_FILEMODE_TREE:
+                path = self._find(obj, oid, None)
+                if path:
+                    return obj.name + '/' + path
+            elif obj.id == oid:
+                return obj.name
+
+        return None
+
+class SnapshotGroups:
+    def __init__(self, repository):
+        self._repository = repository
+
+    def __contains__(self, name):
+        return self._url_pattern_config_key(name) in self._repository.git.config
+
+    def __getitem__(self, name):
+        try:
+            url_pattern = self._repository.git.config[self._url_pattern_config_key(name)]
+        except KeyError:
+            raise KeyError(name)
+        return SnapshotGroup(self._repository, name, url_pattern)
+
+    def __iter__(self):
         pattern = re.compile('^sod-snapshot\.([^.]+)\.url-pattern$')
-        for item in self.git.config:
+        for item in self._repository.git.config:
             match = pattern.search(item.name)
             if not match:
                 continue
             name = match.group(1)
             url_pattern = item.value
-            yield (name, url_pattern)
+            yield SnapshotGroup(self._repository, name, url_pattern)
 
-    def _snapshot_url_pattern_config_key(self, name):
-        return 'sod-snapshot.{}.url-pattern'.format(name)
-
-    def format_snapshot_list(self):
-        for name, url_pattern in self._list_snapshots():
-            yield name + '  ' + url_pattern + '\n'
-
-    def add_snapshot(self, name, url_pattern):
+    def create(self, name, url_pattern):
         if '/' in name:
             raise Error('Snapshot name may not contain slashes')
-        if self._snapshot_url_pattern_config_key(name) in self.git.config:
+        if name in self:
             raise Error('Snapshot of this name already exists')
         try:
-            self._parse_snapshot_url(url_pattern)
+            SnapshotGroup.parse_url(url_pattern)
         except Error:
             raise
-        self.git.config[self._snapshot_url_pattern_config_key(name)] = url_pattern
+        self._repository.git.config[self._url_pattern_config_key(name)] = url_pattern
 
-    def _has_snapshot(self, name):
-        for name_, url_pattern in self._list_snapshots():
-            if name_ == name:
-                return True
-        return False
+    def delete(self, name):
+        try:
+            group = self.__getitem__(name)
+        except KeyError:
+            raise Error('No such snapshot')
 
-    def remove_snapshot(self, name):
-        if not self._has_snapshot(name):
-            raise Error('No such snapshot: ' + name)
-        self._remove_snapshot_remotes(name)
+        group._remove_remotes()
+
         for key in [
-                self._snapshot_url_pattern_config_key(name),
+                self._url_pattern_config_key(name),
                 ]:
             try:
-                del self.git.config[key]
+                del self._repository.git.config[key]
             except KeyError:
                 continue
 
-    def _remove_snapshot_remotes(self, name):
-        to_remove = []
-        for remote in self.git.remotes:
-            if remote.name == name or remote.name.startswith(name + '/'):
-                to_remove.append(remote.name)
-        for name in to_remove:
-            self.git.remotes.delete(name)
+    def fetch(self, names):
+        if not names:
+            groups = list(self.__iter__())
+        else:
+            groups = filter(lambda g: g.name in names, self.__iter__())
 
-    def _parse_snapshot_url(self, url):
+        for group in groups:
+            group.fetch()
+
+    def _url_pattern_config_key(self, name):
+        return 'sod-snapshot.{}.url-pattern'.format(name)
+
+class SnapshotGroup:
+    def __init__(self, repository, name, url_pattern):
+        self._repository = repository
+        self._name = name
+        self._url_pattern = url_pattern
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def url_pattern(self):
+        return self._url_pattern
+
+    def fetch(self):
+        self._remove_remotes()
+
+        for snapshot in self._expand():
+            self._repository.git.remotes.create(snapshot.name, snapshot.url + '/' + SOD_DIR,
+                    'HEAD:' + snapshot.reference)
+            snapshot.fetch()
+
+    @staticmethod
+    def parse_url(url):
         parsed = urlparse(url)
         if parsed.params:
             raise Error('Unsupported URL: Parameters must be empty')
@@ -584,11 +731,18 @@ class Repository:
 
         return (parsed.scheme or 'file', parsed.netloc, parsed.path)
 
-    def _expand_snapshot(self, name):
-        url_pattern = self.git.config[self._snapshot_url_pattern_config_key(name)]
-        scheme, netloc, path_pattern = self._parse_snapshot_url(url_pattern)
+    def _remove_remotes(self):
+        to_remove = []
+        for remote in self._repository.git.remotes:
+            if remote.name == self._name or remote.name.startswith(self._name + '/'):
+                to_remove.append(remote.name)
+        for name in to_remove:
+            self._repository.git.remotes.delete(name)
+
+    def _expand(self):
+        scheme, netloc, path_pattern = self.parse_url(self._url_pattern)
         if '*' not in path_pattern:
-            yield (name, url_pattern)
+            yield Snapshot(self._repository, self._name, None)
             return
 
         # Only match directories which look like sod repositories
@@ -611,147 +765,75 @@ class Repository:
 
         for path in matching_paths:
             key = path[len(prefix):-len(suffix)]
-            yield (name + '/' + key), url_pattern.replace('*', key)
+            yield Snapshot(self._repository, self._name, key)
 
-    def fetch_snapshots(self, names):
-        if not names:
-            names = [name for name, url_pattern in self._list_snapshots()]
+class Snapshots:
+    def __init__(self, repository):
+        self._repository = repository
 
-        for name in names:
-            self._fetch_snapshot(name)
+    def __getitem__(self, name):
+        group_name, key = self._split_name(name)
+        snapshot = Snapshot(self._repository, group_name, key)
+        if snapshot.reference not in self._repository.git.references:
+            raise KeyError(name)
+        return snapshot
 
-    def _fetch_snapshot(self, name):
-        if not self._has_snapshot(name):
-            raise Error('No such snapshot: ' + name)
-
-        self._remove_snapshot_remotes(name)
-
-        for name, url in self._expand_snapshot(name):
-            remote = self.git.remotes.create(name, url + '/' + SOD_DIR,
-                    'HEAD:' + SNAPSHOT_REF_PREFIX + name)
-
-            logger.info('Fetching %s', name)
-            result = subprocess.run(['git', '--git-dir', self.git.path, 'fetch', name],
-                capture_output=True)
-            if result.returncode != 0:
-                raise Error('Failed to fetch ' + name + ': ' + result.stderr.decode())
-
-    def restore(self, path, refish, snapshot_name):
-        try:
-            head = self.git.get(self.git.head.target)
-        except pygit2.GitError:
-            raise Error('No commit found')
-
-        if os.path.exists(path):
-            raise Error('File exists - refusing to overwrite: ' + path)
-
-        if refish:
-            try:
-                commit = sefl.git.get(self.git.resolve_refish(refish)[0])
-            except pygit2.GitError:
-                raise Error('Bad revision: ' + refish)
-        else:
-            commit = head
-
-        try:
-            obj = commit.tree[path]
-        except KeyError:
-            raise Error('No such file known to sod. Try different revision?')
-
-        if obj.filemode == pygit2.GIT_FILEMODE_TREE:
-            raise Error('Unsupported operation. Cannot restore directories')
-
-        if obj.filemode == pygit2.GIT_FILEMODE_LINK:
-            target = obj.data
-            try:
-                os.symlink(target, path)
-            except OSError as e:
-                raise Error('Failed to create symlink: ' + str(e))
-            return
-
-        assert obj.filemode == pygit2.GIT_FILEMODE_BLOB
-
-        snapshot_refs = self._snapshot_refs()
-
-        matching_snapshot_refs = []
-        for ancestor in self.git.walk(commit.id):
-            if ancestor.id not in snapshot_refs:
+    def __iter__(self):
+        for ref_name in self._repository.git.references:
+            if not ref_name.startswith(SNAPSHOT_REF_PREFIX):
                 continue
+            name = ref_name[len(SNAPSHOT_REF_PREFIX):]
+            group_name, key = self._split_name(name)
+            yield Snapshot(self._repository, group_name, key)
 
-            ancestor_path = self._find_object(ancestor.tree, obj.id, path_hint=path)
-            if ancestor_path:
-                for ref in snapshot_refs[ancestor.id]:
-                    matching_snapshot_refs.append((ref, ancestor_path))
+    def _split_name(self, name):
+        try:
+            group_name, key = name.split('/', maxsplit=1)
+        except ValueError:
+            key = None
+        return (group_name, key)
 
-        if not matching_snapshot_refs:
-            raise Error('No snapshot seems to contain the file in the desired revision')
+class Snapshot:
+    def __init__(self, repository, group_name, key):
+        self._repository = repository
+        self._group_name = group_name
+        self._key = key
 
-        excluded_snapshot_refs = []
-        restored = False
+    @property
+    def name(self):
+        retv = self._group_name
+        if self._key:
+            retv += '/' + self._key
+        return retv
 
-        for ref, ancestor_path in matching_snapshot_refs:
-            if snapshot_name and not self._ref_matches_snapshot(ref, snapshot_name):
-                excluded_snapshot_refs.append(ref)
-                continue
+    @property
+    def reference(self):
+        return SNAPSHOT_REF_PREFIX + self.shorthand_reference
 
-            logger.info('Trying to restore from ' + self._shorthand_ref(ref))
-            try:
-                self._restore(ref, ancestor_path, path)
-            except Error as e:
-                logger.warning('Failed to restore from ' + self._shorthand_ref(ref) + ': ' + str(e))
-            else:
-                restored = True
-                break
+    @property
+    def shorthand_reference(self):
+        return self.name
 
-        if not restored:
-            if excluded_snapshot_refs:
-                logger.info('Also available from the following skipped snapshots:')
-                for ref in excluded_snapshot_refs:
-                    logger.info('  ' + self._shorthand_ref(ref))
-            raise Error('Could not restore')
+    @property
+    def url(self):
+        url = self._repository.snapshot_groups[self._group_name].url_pattern
+        assert '*' not in url or self._key
+        if self._key:
+            url = url.replace('*', self._key, 1)
+        return url
 
-    def _shorthand_ref(self, ref):
-        if ref.startswith(SNAPSHOT_REF_PREFIX):
-            return ref[len(SNAPSHOT_REF_PREFIX):]
-        else:
-            return ref
+    def fetch(self):
+        logger.info('Fetching %s', self.name)
+        result = subprocess.run(['git', '--git-dir', self._repository.git.path, 'fetch', self.name],
+            capture_output=True)
+        if result.returncode != 0:
+            raise Error('Failed to fetch ' + self.name + ': ' + result.stderr.decode())
 
-    def _shorthand_refs(self, refs):
-        return [self._shorthand_ref(ref) for ref in refs]
-
-    def _ref_matches_snapshot(self, ref, snapshot_name):
-        return ref == SNAPSHOT_REF_PREFIX + snapshot_name \
-                or ref.startswith(SNAPSHOT_REF_PREFIX + snapshot_name + '/')
-
-    def _find_object(self, tree, oid, path_hint):
-        if path_hint:
-            try:
-                obj = tree[path_hint]
-            except KeyError:
-                pass
-            if obj.id == oid:
-                return path_hint
-
-        for obj in tree:
-            if obj.type == pygit2.GIT_FILEMODE_TREE:
-                path = self._find(obj, oid, None)
-                if path:
-                    return obj.name + '/' + path
-            elif obj.id == oid:
-                return obj.name
-
-        return None
-
-    def _restore(self, snapshot_ref, path, destination_path):
-        assert snapshot_ref.startswith(SNAPSHOT_REF_PREFIX)
-        name = snapshot_ref[len(SNAPSHOT_REF_PREFIX):]
-        url = self._snapshot_config(name)
-        url += '/' + path
-
-        self._download(url, destination_path)
+    def restore(self, path, destination_path):
+        self._download(self.url + '/' + path, destination_path)
 
     def _download(self, url, destination_path):
-        scheme, netloc, path = self._parse_snapshot_url(url)
+        scheme, netloc, path = SnapshotGroup.parse_url(url)
         if not scheme or scheme == 'file':
             assert not netloc
             try:
@@ -764,20 +846,6 @@ class Repository:
                 raise Error('Download failed: ' + result.stderr.decode())
         else:
             assert False
-
-    def _snapshot_config(self, name):
-        try:
-            name, key = name.split('/', maxsplit=1)
-        except ValueError:
-            key = None
-
-        url = self.git.config[self._snapshot_url_pattern_config_key(name)]
-        assert '*' not in url or key
-        if key:
-            url = url.replace('*', key, 1)
-
-        return url
-
 
 class ErrorHandlingGroup(click.Group):
     def __call__(self, *args, **kwargs):
@@ -868,13 +936,13 @@ def list(repository):
 @click.argument('url_pattern')
 @pass_repository
 def add(repository, name, url_pattern):
-    repository.add_snapshot(name, url_pattern)
+    repository.snapshot_groups.create(name, url_pattern)
 
 @snapshot.command()
 @click.argument('name')
 @pass_repository
 def remove(repository, name):
-    repository.remove_snapshot(name)
+    repository.snapshot_groups.delete(name)
 
 @snapshot.command()
 @click.option('--all', 'fetch_all', is_flag=True, help='Fetch all snapshots')
@@ -882,9 +950,9 @@ def remove(repository, name):
 @pass_repository
 def fetch(repository, fetch_all, name):
     if name:
-        repository.fetch_snapshots([name])
+        repository.snapshot_groups.fetch([name])
     elif fetch_all:
-        repository.fetch_snapshots()
+        repository.snapshot_groups.fetch()
     else:
         raise click.UsageError('No snapshot selected')
 
