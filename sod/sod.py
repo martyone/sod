@@ -1,4 +1,5 @@
 import click
+from datetime import datetime
 import logging
 import os
 import pygit2
@@ -107,7 +108,29 @@ def log(repository, abbrev):
     except pygit2.GitError:
         raise Error('No commit found')
 
-    click.echo_via_pager(repository.format_log(head, abbreviate=abbrev))
+    def format_commit(commit, snapshots, diff):
+        refs = [snapshot.shorthand_reference for snapshot in snapshots]
+        if commit.id == head:
+            refs.insert(0, 'HEAD')
+
+        if refs:
+            decoration = ' (' + ', '.join(refs) + ')'
+        else:
+            decoration = ''
+
+        yield 'commit {}{}\n'.format(commit.id, decoration)
+        yield 'Date: {:%c}\n'.format(datetime.fromtimestamp(commit.commit_time))
+        yield '\n'
+        yield '    {}\n'.format(commit.message)
+        yield '\n'
+        yield from repository.format_diff(diff, abbreviate=abbrev)
+        yield '\n'
+
+    def format_log(log):
+        for commit, snapshots, diff in log:
+            yield from format_commit(commit, snapshots, diff)
+
+    click.echo_via_pager(format_log(repository.log(head)))
 
 @cli.group()
 def snapshot():

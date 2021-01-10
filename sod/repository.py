@@ -1,5 +1,4 @@
 from collections import defaultdict
-from datetime import datetime
 import glob
 import logging
 import os
@@ -215,10 +214,8 @@ class Repository:
 
         return snapshots
 
-    def format_log(self, oid, abbreviate=False):
+    def log(self, oid):
         snapshots = self._snapshots_by_oid()
-
-        head_obj = self.git.references['HEAD'].peel()
 
         for commit in self.git.walk(oid):
             if commit.parents:
@@ -232,24 +229,7 @@ class Repository:
             except KeyError:
                 pass
 
-            refs = []
-            if matching_snapshots:
-                refs = [snapshot.shorthand_reference for snapshot in matching_snapshots]
-            if commit.id == head_obj.id:
-                refs.insert(0, 'HEAD')
-
-            if refs:
-                decoration = ' (' + ', '.join(refs) + ')'
-            else:
-                decoration = ''
-
-            yield 'commit {}{}\n'.format(commit.id, decoration)
-            yield 'Date: {:%c}\n'.format(datetime.fromtimestamp(commit.commit_time))
-            yield '\n'
-            yield '    {}\n'.format(commit.message)
-            yield '\n'
-            yield from self.format_diff(diff, abbreviate=abbreviate)
-            yield '\n'
+            yield (commit, matching_snapshots, diff)
 
     def commit(self, message):
         if not self.diff_staged():
