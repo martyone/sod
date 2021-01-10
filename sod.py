@@ -175,7 +175,7 @@ def walk_bottom_up(top, skip_tree_names, skip_tree_flags):
 
             try:
                 if entry.is_symlink():
-                    symdirs.append(entry.name)
+                    symlinks.append(entry.name)
                 elif entry.is_dir():
                     if entry.name not in skip_tree_names:
                         dirs.append(entry.name)
