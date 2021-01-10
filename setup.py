@@ -1,15 +1,16 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='sod',
     version='0.1',
-    py_modules=['sod'],
+    packages=find_packages(),
+    include_package_data=True,
     install_requires=[
         'click',
         'pygit2',
     ],
     entry_points='''
         [console_scripts]
-        sod=sod:cli
+        sod=sod.sod:cli
     ''',
 )
