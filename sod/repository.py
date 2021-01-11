@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from . import Error
 from . import gittools
+from . import hashing
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +57,19 @@ class Repository:
 
         git.config['core.quotePath'] = False
 
+    def _make_create_blob(self, rehash=False):
+        def create_blob(git, path):
+            digest = hashing.digest_for(path, rehash)
+            oid = git.create_blob((digest + '\n').encode())
+            return oid
+        return create_blob
+
     def _tree_build(self, top_dir, rehash=False):
-        return gittools.tree_build(self.git, top_dir, rehash=rehash,
+        return gittools.tree_build(self.git, top_dir, create_blob=self._make_create_blob(rehash),
                 skip_tree_names=SKIP_TREE_NAMES, skip_tree_flags=SKIP_TREE_FLAGS)
 
     def _index_add(self, index, path, rehash=False):
-        return gittools.index_add(self.git, index, path, rehash=rehash,
+        return gittools.index_add(self.git, index, path, create_blob=self._make_create_blob(rehash),
                 skip_tree_names=SKIP_TREE_NAMES, skip_tree_flags=SKIP_TREE_FLAGS)
 
     def add(self, paths=[]):

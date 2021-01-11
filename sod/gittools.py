@@ -2,8 +2,6 @@ import logging
 import os
 import pygit2
 
-from . import hashing
-
 logger = logging.getLogger(__name__)
 
 DELTA_STATUS_NAME = {
@@ -71,7 +69,7 @@ def empty_tree_oid(repo):
 def empty_tree(repo):
     return repo.get(empty_tree_oid(repo))
 
-def tree_build(repo, top_dir, *, rehash, skip_tree_names, skip_tree_flags):
+def tree_build(repo, top_dir, *, create_blob, skip_tree_names, skip_tree_flags):
     trees = {}
 
     EMPTY_TREE_OID = empty_tree_oid(repo)
@@ -86,8 +84,7 @@ def tree_build(repo, top_dir, *, rehash, skip_tree_names, skip_tree_flags):
             builder.insert(name, oid, pygit2.GIT_FILEMODE_TREE)
             item_count += 1
         for name in files:
-            digest = hashing.digest_for(os.path.join(root, name), rehash)
-            oid = repo.create_blob((digest + '\n').encode())
+            oid = create_blob(repo, os.path.join(root, name))
             builder.insert(name, oid, pygit2.GIT_FILEMODE_BLOB)
             item_count += 1
         for name in symlinks:
@@ -123,7 +120,7 @@ def tree_filter(repo, tree, paths):
 
     return repo.get(index.write_tree(repo))
 
-def index_add(repo, index, path, *, rehash, skip_tree_names, skip_tree_flags):
+def index_add(repo, index, path, *, create_blob, skip_tree_names, skip_tree_flags):
     if os.path.islink(path):
         try:
             target = os.readlink(path)
@@ -134,12 +131,11 @@ def index_add(repo, index, path, *, rehash, skip_tree_names, skip_tree_flags):
         index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_LINK))
     elif os.path.isdir(path):
         index.remove_all([path])
-        oid = tree_build(repo, path, rehash=rehash, skip_tree_names=skip_tree_names,
+        oid = tree_build(repo, path, create_blob=create_blob, skip_tree_names=skip_tree_names,
                 skip_tree_flags=skip_tree_flags)
         index_add_tree(repo, index, path, repo.get(oid))
     elif os.path.isfile(path):
-        digest = hashing.digest_for(path, rehash)
-        oid = repo.create_blob((digest + '\n').encode())
+        oid = create_blob(repo, path)
         index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_BLOB))
     else:
         index.remove_all([path])
