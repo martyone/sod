@@ -11,7 +11,6 @@ from urllib.parse import urlparse
 
 from . import Error
 from . import gittools
-from . import hashing
 
 logger = logging.getLogger(__name__)
 
@@ -35,47 +34,6 @@ DIFF_FIND_SIMILAR_FLAGS = (
 # unmodified entries are not removed.
 DIFF_FLAGS = 0
 DIFF_FIND_SIMILAR_FLAGS = 0
-
-DELTA_STATUS_NAME = {
-    pygit2.GIT_DELTA_UNMODIFIED: 'unmodified',
-    pygit2.GIT_DELTA_ADDED: 'added',
-    pygit2.GIT_DELTA_DELETED: 'deleted',
-    pygit2.GIT_DELTA_MODIFIED: 'modified',
-    pygit2.GIT_DELTA_RENAMED: 'renamed',
-    pygit2.GIT_DELTA_COPIED: 'copied',
-    pygit2.GIT_DELTA_IGNORED: 'ignored',
-    pygit2.GIT_DELTA_UNTRACKED: 'untracked',
-    pygit2.GIT_DELTA_TYPECHANGE: 'type-changed',
-    pygit2.GIT_DELTA_UNREADABLE: 'unreadable',
-    pygit2.GIT_DELTA_CONFLICTED: 'conflicted',
-}
-DELTA_STATUS_MAX_LENGTH = max([len(name) for name in DELTA_STATUS_NAME.values()])
-
-def format_path_change(old_path, new_path):
-    common_prefix = os.path.commonpath([old_path, new_path])
-    if common_prefix:
-        common_prefix += os.path.sep
-    old_unique = old_path[len(common_prefix):]
-    new_unique = new_path[len(common_prefix):]
-    common_suffix = ''
-    while True:
-        old_unique_h, old_unique_t = os.path.split(old_unique)
-        new_unique_h, new_unique_t = os.path.split(new_unique)
-        if old_unique_t != new_unique_t:
-            break
-        common_suffix = os.path.join(old_unique_t, common_suffix)
-        old_unique = old_unique_h
-        new_unique = new_unique_h
-
-    if common_prefix or common_suffix:
-        retv = os.path.join(common_prefix,
-                '{' + old_unique + ' -> ' + new_unique + '}',
-                common_suffix)
-        retv = retv.rstrip(os.path.sep)
-    else:
-        retv = old_path + ' -> ' + new_path
-
-    return retv
 
 class Repository:
     def __init__(self, path):
@@ -182,28 +140,6 @@ class Repository:
             diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
 
         return diff
-
-    def format_diff(self, git_diff, abbreviate=True):
-        for delta in git_diff.deltas:
-            if delta.old_file.path == delta.new_file.path:
-                path_info = delta.old_file.path
-            else:
-                path_info = format_path_change(delta.old_file.path, delta.new_file.path)
-
-            if delta.similarity != 100 and delta.status != pygit2.GIT_DELTA_ADDED:
-                old_blob = self.git.get(delta.old_file.id)
-                old_digest = old_blob.data.decode().strip()
-            else:
-                old_digest = '-'
-
-            digest_size = hashing.digest_size(abbreviate)
-
-            yield '  {status:{status_w}}  {old_digest:{digest_w}}  {path_info}\n'.format(
-                status=DELTA_STATUS_NAME[delta.status] + ':',
-                status_w=DELTA_STATUS_MAX_LENGTH + 1,
-                old_digest=old_digest[0:digest_size],
-                digest_w=digest_size,
-                path_info=path_info)
 
     def _snapshots_by_oid(self):
         snapshots = defaultdict(lambda: [])

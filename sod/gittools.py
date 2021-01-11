@@ -6,6 +6,21 @@ from . import hashing
 
 logger = logging.getLogger(__name__)
 
+DELTA_STATUS_NAME = {
+    pygit2.GIT_DELTA_UNMODIFIED: 'unmodified',
+    pygit2.GIT_DELTA_ADDED: 'added',
+    pygit2.GIT_DELTA_DELETED: 'deleted',
+    pygit2.GIT_DELTA_MODIFIED: 'modified',
+    pygit2.GIT_DELTA_RENAMED: 'renamed',
+    pygit2.GIT_DELTA_COPIED: 'copied',
+    pygit2.GIT_DELTA_IGNORED: 'ignored',
+    pygit2.GIT_DELTA_UNTRACKED: 'untracked',
+    pygit2.GIT_DELTA_TYPECHANGE: 'type-changed',
+    pygit2.GIT_DELTA_UNREADABLE: 'unreadable',
+    pygit2.GIT_DELTA_CONFLICTED: 'conflicted',
+}
+DELTA_STATUS_MAX_LENGTH = max([len(name) for name in DELTA_STATUS_NAME.values()])
+
 def _walk_bottom_up(top, skip_tree_names, skip_tree_flags):
     dirs = []
     files = []
