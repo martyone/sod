@@ -183,43 +183,44 @@ def log(repository, abbrev):
     click.echo_via_pager(format_log(repository.log(head)))
 
 @cli.group()
-def snapshot():
+def aux():
     pass
 
-@snapshot.command()
+@aux.command()
 @pass_repository
 def list(repository):
-    click.echo(''.join(repository.format_snapshot_list()))
+    for store in repository.aux_stores:
+        click.echo(store.name + ' ' + store.url_pattern)
 
-@snapshot.command()
+@aux.command()
 @click.argument('name')
 @click.argument('url_pattern')
 @pass_repository
 def add(repository, name, url_pattern):
-    repository.snapshot_groups.create(name, url_pattern)
+    repository.aux_stores.create(name, url_pattern)
 
-@snapshot.command()
+@aux.command()
 @click.argument('name')
 @pass_repository
 def remove(repository, name):
-    repository.snapshot_groups.delete(name)
+    repository.aux_stores.delete(name)
 
-@snapshot.command()
-@click.option('--all', 'fetch_all', is_flag=True, help='Fetch all snapshots')
+@aux.command()
+@click.option('--all', 'update_all', is_flag=True, help='Update all auxiliary data stores')
 @click.argument('name', required=False)
 @pass_repository
-def fetch(repository, fetch_all, name):
+def update(repository, update_all, name):
     if name:
-        repository.snapshot_groups.fetch([name])
-    elif fetch_all:
-        repository.snapshot_groups.fetch()
+        repository.aux_stores.update([name])
+    elif update_all:
+        repository.aux_stores.update()
     else:
-        raise click.UsageError('No snapshot selected')
+        raise click.UsageError('No store selected')
 
 @cli.command()
 @click.argument('path')
 @click.argument('ref-ish', required=False)
-@click.option('--snapshot', 'snapshot', help='Restore using the given snapshot')
+@click.option('--from', 'aux_store', help='Restore using the given auxiliary data store')
 @pass_repository
-def restore(repository, path, ref_ish, snapshot):
-    repository.restore(path, ref_ish, snapshot)
+def restore(repository, path, ref_ish, aux_store):
+    repository.restore(path, ref_ish, aux_store)

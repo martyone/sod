@@ -40,7 +40,7 @@ class Repository:
     def __init__(self, path):
         self.path = path
         self.git = pygit2.Repository(os.path.join(self.path, SOD_DIR))
-        self.snapshot_groups = SnapshotGroups(self)
+        self.aux_stores = AuxStores(self)
         self.snapshots = Snapshots(self)
 
     @staticmethod
@@ -190,11 +190,7 @@ class Repository:
         self.git.create_commit(ref_name, FAKE_SIGNATURE, FAKE_SIGNATURE,
                 message, self.git.index.write_tree(), parents)
 
-    def format_snapshot_list(self):
-        for group in self.snapshot_groups:
-            yield group.name + '  ' + group.url_pattern + '\n'
-
-    def restore(self, path, refish, snapshot_name):
+    def restore(self, path, refish, aux_store_name):
         try:
             head = self.git.get(self.git.head.target)
         except pygit2.GitError:
@@ -255,7 +251,7 @@ class Repository:
         restored = False
 
         for snapshot, ancestor_path in matching_snapshots:
-            if snapshot_name and snapshot.group_name != snapshot_name:
+            if aux_store_name and snapshot.store_name != aux_store_name:
                 excluded_snapshots.append(snapshot)
                 continue
 
@@ -275,7 +271,7 @@ class Repository:
                     logger.info('  ' + snapshot.name)
             raise Error('Could not restore')
 
-class SnapshotGroups:
+class AuxStores:
     def __init__(self, repository):
         self._repository = repository
 
@@ -287,36 +283,36 @@ class SnapshotGroups:
             url_pattern = self._repository.git.config[self._url_pattern_config_key(name)]
         except KeyError:
             raise KeyError(name)
-        return SnapshotGroup(self._repository, name, url_pattern)
+        return AuxStore(self._repository, name, url_pattern)
 
     def __iter__(self):
-        pattern = re.compile('^sod-snapshot\.([^.]+)\.url-pattern$')
+        pattern = re.compile('^sod-aux-store\.([^.]+)\.url-pattern$')
         for item in self._repository.git.config:
             match = pattern.search(item.name)
             if not match:
                 continue
             name = match.group(1)
             url_pattern = item.value
-            yield SnapshotGroup(self._repository, name, url_pattern)
+            yield AuxStore(self._repository, name, url_pattern)
 
     def create(self, name, url_pattern):
         if '/' in name:
-            raise Error('Snapshot name may not contain slashes')
+            raise Error('Auxiliary data store name may not contain slashes')
         if name in self:
-            raise Error('Snapshot of this name already exists')
+            raise Error('Auxiliary data store of this name already exists')
         try:
-            SnapshotGroup.parse_url(url_pattern)
+            AuxStore.parse_url(url_pattern)
         except Error:
             raise
         self._repository.git.config[self._url_pattern_config_key(name)] = url_pattern
 
     def delete(self, name):
         try:
-            group = self.__getitem__(name)
+            store = self.__getitem__(name)
         except KeyError:
-            raise Error('No such snapshot')
+            raise Error('No such auxiliary data store')
 
-        group._remove_remotes()
+        store._remove_remotes()
 
         for key in [
                 self._url_pattern_config_key(name),
@@ -326,19 +322,19 @@ class SnapshotGroups:
             except KeyError:
                 continue
 
-    def fetch(self, names):
+    def update(self, names):
         if not names:
-            groups = list(self.__iter__())
+            stores = list(self.__iter__())
         else:
-            groups = filter(lambda g: g.name in names, self.__iter__())
+            stores = filter(lambda s: s.name in names, self.__iter__())
 
-        for group in groups:
-            group.fetch()
+        for store in stores:
+            store.update()
 
     def _url_pattern_config_key(self, name):
-        return 'sod-snapshot.{}.url-pattern'.format(name)
+        return 'sod-aux-store.{}.url-pattern'.format(name)
 
-class SnapshotGroup:
+class AuxStore:
     def __init__(self, repository, name, url_pattern):
         self._repository = repository
         self._name = name
@@ -352,13 +348,13 @@ class SnapshotGroup:
     def url_pattern(self):
         return self._url_pattern
 
-    def fetch(self):
+    def update(self):
         self._remove_remotes()
 
-        for snapshot in self._expand():
+        for snapshot in self._list():
             self._repository.git.remotes.create(snapshot.name, snapshot.url + '/' + SOD_DIR,
                     'HEAD:' + snapshot.reference)
-            snapshot.fetch()
+            snapshot.update()
 
     @staticmethod
     def parse_url(url):
@@ -396,7 +392,7 @@ class SnapshotGroup:
         for name in to_remove:
             self._repository.git.remotes.delete(name)
 
-    def _expand(self):
+    def _list(self):
         scheme, netloc, path_pattern = self.parse_url(self._url_pattern)
         if '*' not in path_pattern:
             yield Snapshot(self._repository, self._name, None)
@@ -415,7 +411,7 @@ class SnapshotGroup:
                     shlex.quote(prefix), shlex.quote(suffix))
             result = subprocess.run(['ssh', netloc, remote_command], capture_output=True)
             if result.returncode != 0:
-                raise Error('Failed to list remote snapshots: ' + result.stderr.decode())
+                raise Error('Failed to list snapshots: ' + result.stderr.decode())
             matching_paths = shlex.split(result.stdout.decode())
         else:
             assert False
@@ -429,8 +425,8 @@ class Snapshots:
         self._repository = repository
 
     def __getitem__(self, name):
-        group_name, key = self._split_name(name)
-        snapshot = Snapshot(self._repository, group_name, key)
+        store_name, key = self._split_name(name)
+        snapshot = Snapshot(self._repository, store_name, key)
         if snapshot.reference not in self._repository.git.references:
             raise KeyError(name)
         return snapshot
@@ -440,25 +436,26 @@ class Snapshots:
             if not ref_name.startswith(SNAPSHOT_REF_PREFIX):
                 continue
             name = ref_name[len(SNAPSHOT_REF_PREFIX):]
-            group_name, key = self._split_name(name)
-            yield Snapshot(self._repository, group_name, key)
+            store_name, key = self._split_name(name)
+            yield Snapshot(self._repository, store_name, key)
 
     def _split_name(self, name):
         try:
-            group_name, key = name.split('/', maxsplit=1)
+            store_name, key = name.split('/', maxsplit=1)
         except ValueError:
             key = None
-        return (group_name, key)
+        return (store_name, key)
 
 class Snapshot:
-    def __init__(self, repository, group_name, key):
+    def __init__(self, repository, store_name, key):
         self._repository = repository
-        self._group_name = group_name
+        self._store_name = store_name
+        # TODO rename, not a "name", maybe "id"
         self._key = key
 
     @property
     def name(self):
-        retv = self._group_name
+        retv = self._store_name
         if self._key:
             retv += '/' + self._key
         return retv
@@ -473,24 +470,24 @@ class Snapshot:
 
     @property
     def url(self):
-        url = self._repository.snapshot_groups[self._group_name].url_pattern
+        url = self._repository.aux_stores[self._store_name].url_pattern
         assert '*' not in url or self._key
         if self._key:
             url = url.replace('*', self._key, 1)
         return url
 
-    def fetch(self):
-        logger.info('Fetching %s', self.name)
+    def update(self):
+        logger.info('Updating %s', self.name)
         result = subprocess.run(['git', '--git-dir', self._repository.git.path, 'fetch', self.name],
             capture_output=True)
         if result.returncode != 0:
-            raise Error('Failed to fetch ' + self.name + ': ' + result.stderr.decode())
+            raise Error('Failed to update ' + self.name + ': ' + result.stderr.decode())
 
     def restore(self, path, destination_path):
         self._download(self.url + '/' + path, destination_path)
 
     def _download(self, url, destination_path):
-        scheme, netloc, path = SnapshotGroup.parse_url(url)
+        scheme, netloc, path = AuxStore.parse_url(url)
         if not scheme or scheme == 'file':
             assert not netloc
             try:
