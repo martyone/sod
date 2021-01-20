@@ -276,35 +276,35 @@ class AuxStores:
         self._repository = repository
 
     def __contains__(self, name):
-        return self._url_pattern_config_key(name) in self._repository.git.config
+        return self._url_config_key(name) in self._repository.git.config
 
     def __getitem__(self, name):
         try:
-            url_pattern = self._repository.git.config[self._url_pattern_config_key(name)]
+            url = self._repository.git.config[self._url_config_key(name)]
         except KeyError:
             raise KeyError(name)
-        return AuxStore(self._repository, name, url_pattern)
+        return AuxStore(self._repository, name, url)
 
     def __iter__(self):
-        pattern = re.compile('^sod-aux-store\.([^.]+)\.url-pattern$')
+        pattern = re.compile('^sod-aux-store\.([^.]+)\.url$')
         for item in self._repository.git.config:
             match = pattern.search(item.name)
             if not match:
                 continue
             name = match.group(1)
-            url_pattern = item.value
-            yield AuxStore(self._repository, name, url_pattern)
+            url = item.value
+            yield AuxStore(self._repository, name, url)
 
-    def create(self, name, url_pattern):
+    def create(self, name, url):
         if '/' in name:
             raise Error('Auxiliary data store name may not contain slashes')
         if name in self:
             raise Error('Auxiliary data store of this name already exists')
         try:
-            AuxStore.parse_url(url_pattern)
+            AuxStore.parse_url(url)
         except Error:
             raise
-        self._repository.git.config[self._url_pattern_config_key(name)] = url_pattern
+        self._repository.git.config[self._url_config_key(name)] = url
 
     def delete(self, name):
         try:
@@ -315,7 +315,7 @@ class AuxStores:
         store._remove_remotes()
 
         for key in [
-                self._url_pattern_config_key(name),
+                self._url_config_key(name),
                 ]:
             try:
                 del self._repository.git.config[key]
@@ -331,22 +331,22 @@ class AuxStores:
         for store in stores:
             store.update()
 
-    def _url_pattern_config_key(self, name):
-        return 'sod-aux-store.{}.url-pattern'.format(name)
+    def _url_config_key(self, name):
+        return 'sod-aux-store.{}.url'.format(name)
 
 class AuxStore:
-    def __init__(self, repository, name, url_pattern):
+    def __init__(self, repository, name, url):
         self._repository = repository
         self._name = name
-        self._url_pattern = url_pattern
+        self._url = url
 
     @property
     def name(self):
         return self._name
 
     @property
-    def url_pattern(self):
-        return self._url_pattern
+    def url(self):
+        return self._url
 
     def update(self):
         self._remove_remotes()
@@ -393,19 +393,19 @@ class AuxStore:
             self._repository.git.remotes.delete(name)
 
     def _list(self):
-        scheme, netloc, path_pattern = self.parse_url(self._url_pattern)
-        if '*' not in path_pattern:
+        scheme, netloc, path = self.parse_url(self._url)
+        if '*' not in path:
             yield Snapshot(self._repository, self._name, None)
             return
 
         # Only match directories which look like sod repositories
-        path_pattern += '/' + SOD_DIR
+        path += '/' + SOD_DIR
 
-        prefix, suffix = path_pattern.split('*', maxsplit=1)
+        prefix, suffix = path.split('*', maxsplit=1)
 
         matching_paths = []
         if scheme == 'file':
-            matching_paths = glob.glob(path_pattern)
+            matching_paths = glob.glob(path)
         elif scheme == 'ssh':
             remote_command = 'ls -d --quoting-style=shell {}*{}'.format(
                     shlex.quote(prefix), shlex.quote(suffix))
@@ -416,8 +416,8 @@ class AuxStore:
         else:
             assert False
 
-        for path in matching_paths:
-            key = path[len(prefix):-len(suffix)]
+        for matching_path in matching_paths:
+            key = matching_path[len(prefix):-len(suffix)]
             yield Snapshot(self._repository, self._name, key)
 
 class Snapshots:
@@ -470,7 +470,7 @@ class Snapshot:
 
     @property
     def url(self):
-        url = self._repository.aux_stores[self._store_name].url_pattern
+        url = self._repository.aux_stores[self._store_name].url
         assert '*' not in url or self._key
         if self._key:
             url = url.replace('*', self._key, 1)

@@ -190,14 +190,14 @@ def aux():
 @pass_repository
 def list(repository):
     for store in repository.aux_stores:
-        click.echo(store.name + ' ' + store.url_pattern)
+        click.echo(store.name + ' ' + store.url)
 
 @aux.command()
 @click.argument('name')
-@click.argument('url_pattern')
+@click.argument('url')
 @pass_repository
-def add(repository, name, url_pattern):
-    repository.aux_stores.create(name, url_pattern)
+def add(repository, name, url):
+    repository.aux_stores.create(name, url)
 
 @aux.command()
 @click.argument('name')
