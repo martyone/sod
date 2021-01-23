@@ -9,6 +9,7 @@ from . import Error
 from . import gittools
 from . import hashing
 from . import repository
+from .aux.plain import PlainAuxStore
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,7 @@ pass_repository = click.make_pass_decorator(DiscoveredRepository, ensure=True)
 @click.option('--debug', is_flag=True, help='Enable debugging output')
 def cli(debug):
     init_logging(debug=debug)
+    repository.AuxStore.register_type(PlainAuxStore)
 
 @cli.command()
 def init():
@@ -190,14 +192,21 @@ def aux():
 @pass_repository
 def list(repository):
     for store in repository.aux_stores:
-        click.echo(store.name + ' ' + store.url)
+        click.echo(store.name + ' ' + store.url + ' (' + store.type_name() + ')')
 
 @aux.command()
 @click.argument('name')
 @click.argument('url')
+@click.option('--type', 'store_type', default=PlainAuxStore.type_name(), help='Store type')
 @pass_repository
-def add(repository, name, url):
-    repository.aux_stores.create(name, url)
+def add(repository, name, url, store_type):
+    """Add auxiliary data store
+
+    Available types:
+
+        plain
+    """
+    repository.aux_stores.create(store_type, name, url)
 
 @aux.command()
 @click.argument('name')
