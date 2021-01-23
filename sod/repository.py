@@ -41,7 +41,6 @@ class Repository:
         self.path = path
         self.git = pygit2.Repository(os.path.join(self.path, SOD_DIR))
         self.aux_stores = AuxStores(self)
-        self.snapshots = Snapshots(self)
 
     @staticmethod
     def initialize(path):
@@ -149,17 +148,26 @@ class Repository:
 
         return diff
 
-    def _snapshots_by_oid(self):
+    def _snapshots_by_base_commit_id(self):
         snapshots = defaultdict(lambda: [])
 
-        for snapshot in self.snapshots:
-            obj = self.git.references[snapshot.reference].peel()
-            snapshots[obj.id].append(snapshot)
+        for store in self.aux_stores:
+            for snapshot in store.snapshots:
+                snapshots[snapshot.base_commit_id].append(snapshot)
+
+        return snapshots
+
+    def _snapshots_by_reference(self):
+        snapshots = {}
+
+        for store in self.aux_stores:
+            for snapshot in store.snapshots:
+                snapshots[snapshot.reference].append(snapshot)
 
         return snapshots
 
     def log(self, oid):
-        snapshots = self._snapshots_by_oid()
+        snapshots = self._snapshots_by_base_commit_id()
 
         for commit in self.git.walk(oid):
             if commit.parents:
@@ -200,8 +208,9 @@ class Repository:
             raise Error('File exists - refusing to overwrite: ' + path)
 
         if refish:
+            snapshots = self._snapshots_by_shorthand_reference()
             try:
-                snapshot = self.snapshots[refish]
+                snapshot = snapshots[refish]
             except KeyError:
                 pass
             else:
@@ -232,16 +241,16 @@ class Repository:
 
         assert obj.filemode == pygit2.GIT_FILEMODE_BLOB
 
-        snapshots_by_oid = self._snapshots_by_oid()
+        snapshots_by_base_commit_id = self._snapshots_by_base_commit_id()
 
         matching_snapshots = []
         for ancestor in self.git.walk(commit.id):
-            if ancestor.id not in snapshots_by_oid:
+            if ancestor.id not in snapshots_by_base_commit_id:
                 continue
 
             ancestor_path = gittools.find_object(ancestor.tree, obj.id, path_hint=path)
             if ancestor_path:
-                for snapshot in snapshots_by_oid[ancestor.id]:
+                for snapshot in snapshots_by_base_commit_id[ancestor.id]:
                     matching_snapshots.append((snapshot, ancestor_path))
 
         if not matching_snapshots:
@@ -251,15 +260,15 @@ class Repository:
         restored = False
 
         for snapshot, ancestor_path in matching_snapshots:
-            if aux_store_name and snapshot.store_name != aux_store_name:
+            if aux_store_name and snapshot.store.name != aux_store_name:
                 excluded_snapshots.append(snapshot)
                 continue
 
-            logger.info('Trying to restore from ' + snapshot.name)
+            logger.info('Trying to restore from ' + snapshot.reference)
             try:
-                snapshot.restore(ancestor_path, path)
+                snapshot.store.restore(ancestor_path, path, snapshot)
             except Error as e:
-                logger.warning('Failed to restore from ' + snapshot.name + ': ' + str(e))
+                logger.warning('Failed to restore from ' + snapshot.reference + ': ' + str(e))
             else:
                 restored = True
                 break
@@ -268,7 +277,7 @@ class Repository:
             if excluded_snapshots:
                 logger.info('Also available from the following skipped snapshots:')
                 for snapshot in excluded_snapshots:
-                    logger.info('  ' + snapshot.name)
+                    logger.info('  ' + snapshot.reference)
             raise Error('Could not restore')
 
 class AuxStores:
@@ -322,7 +331,7 @@ class AuxStores:
             except KeyError:
                 continue
 
-    def update(self, names):
+    def update(self, names=None):
         if not names:
             stores = list(self.__iter__())
         else:
@@ -348,13 +357,65 @@ class AuxStore:
     def url(self):
         return self._url
 
+    @property
+    def snapshots(self):
+        for ref_name in self._repository.git.references:
+            if not ref_name.startswith(SNAPSHOT_REF_PREFIX):
+                continue
+            name = ref_name[len(SNAPSHOT_REF_PREFIX):]
+            store_name, id_ = self._split_ref_name(name)
+            if store_name != self._name:
+                continue
+            obj = self._repository.git.references[ref_name].peel()
+            yield Snapshot(self, id_, obj.id)
+
+    def _split_ref_name(self, name):
+        try:
+            store_name, id_ = name.split('/', maxsplit=1)
+        except ValueError:
+            id_ = None
+        return (store_name, id_)
+
     def update(self):
         self._remove_remotes()
 
         for snapshot in self._list():
-            self._repository.git.remotes.create(snapshot.name, snapshot.url + '/' + SOD_DIR,
-                    'HEAD:' + snapshot.reference)
-            snapshot.update()
+            remote_name = snapshot.reference
+            self._repository.git.remotes.create(remote_name,
+                    self._snapshot_url(snapshot) + '/' + SOD_DIR,
+                    'HEAD:' + SNAPSHOT_REF_PREFIX + snapshot.reference)
+            logger.info('Updating %s', snapshot.reference)
+            result = subprocess.run(['git', '--git-dir', self._repository.git.path, 'fetch',
+                remote_name], capture_output=True)
+            if result.returncode != 0:
+                raise Error('Failed to update ' + snapshot.reference + ': ' + result.stderr.decode())
+
+    def _snapshot_url(self, snapshot):
+        url = self._url
+        assert '*' not in url or snapshot.id_
+        if snapshot.id_:
+            url = url.replace('*', snapshot.id_, 1)
+        return url
+
+    def restore(self, path, destination_path, snapshot):
+        url = self._snapshot_url(snapshot)
+        url += '/' + path
+        self._download(url, destination_path)
+
+    def _download(self, url, destination_path):
+        scheme, netloc, path = self.parse_url(url)
+        if not scheme or scheme == 'file':
+            assert not netloc
+            try:
+                shutil.copyfile(path, destination_path, follow_symlinks=False)
+            except Exception as e:
+                raise Error('Failed to copy file: ' + str(e))
+        elif scheme == 'ssh':
+            result = subprocess.run(['scp', netloc + ':' + path, destination_path])
+            if result.returncode != 0:
+                raise Error('Download failed')
+        else:
+            assert False
 
     @staticmethod
     def parse_url(url):
@@ -395,7 +456,7 @@ class AuxStore:
     def _list(self):
         scheme, netloc, path = self.parse_url(self._url)
         if '*' not in path:
-            yield Snapshot(self._repository, self._name, None)
+            yield Snapshot(self, None, None)
             return
 
         # Only match directories which look like sod repositories
@@ -417,86 +478,18 @@ class AuxStore:
             assert False
 
         for matching_path in matching_paths:
-            key = matching_path[len(prefix):-len(suffix)]
-            yield Snapshot(self._repository, self._name, key)
-
-class Snapshots:
-    def __init__(self, repository):
-        self._repository = repository
-
-    def __getitem__(self, name):
-        store_name, key = self._split_name(name)
-        snapshot = Snapshot(self._repository, store_name, key)
-        if snapshot.reference not in self._repository.git.references:
-            raise KeyError(name)
-        return snapshot
-
-    def __iter__(self):
-        for ref_name in self._repository.git.references:
-            if not ref_name.startswith(SNAPSHOT_REF_PREFIX):
-                continue
-            name = ref_name[len(SNAPSHOT_REF_PREFIX):]
-            store_name, key = self._split_name(name)
-            yield Snapshot(self._repository, store_name, key)
-
-    def _split_name(self, name):
-        try:
-            store_name, key = name.split('/', maxsplit=1)
-        except ValueError:
-            key = None
-        return (store_name, key)
+            id_ = matching_path[len(prefix):-len(suffix)]
+            yield Snapshot(self, id_, None)
 
 class Snapshot:
-    def __init__(self, repository, store_name, key):
-        self._repository = repository
-        self._store_name = store_name
-        # TODO rename, not a "name", maybe "id"
-        self._key = key
-
-    @property
-    def name(self):
-        retv = self._store_name
-        if self._key:
-            retv += '/' + self._key
-        return retv
+    def __init__(self, store, id_, base_commit_id):
+        self.store = store
+        self.id_ = id_
+        self.base_commit_id = base_commit_id
 
     @property
     def reference(self):
-        return SNAPSHOT_REF_PREFIX + self.shorthand_reference
-
-    @property
-    def shorthand_reference(self):
-        return self.name
-
-    @property
-    def url(self):
-        url = self._repository.aux_stores[self._store_name].url
-        assert '*' not in url or self._key
-        if self._key:
-            url = url.replace('*', self._key, 1)
-        return url
-
-    def update(self):
-        logger.info('Updating %s', self.name)
-        result = subprocess.run(['git', '--git-dir', self._repository.git.path, 'fetch', self.name],
-            capture_output=True)
-        if result.returncode != 0:
-            raise Error('Failed to update ' + self.name + ': ' + result.stderr.decode())
-
-    def restore(self, path, destination_path):
-        self._download(self.url + '/' + path, destination_path)
-
-    def _download(self, url, destination_path):
-        scheme, netloc, path = AuxStore.parse_url(url)
-        if not scheme or scheme == 'file':
-            assert not netloc
-            try:
-                shutil.copyfile(path, destination_path, follow_symlinks=False)
-            except Exception as e:
-                raise Error('Failed to copy file: ' + str(e))
-        elif scheme == 'ssh':
-            result = subprocess.run(['scp', netloc + ':' + path, destination_path])
-            if result.returncode != 0:
-                raise Error('Download failed')
-        else:
-            assert False
+        retv = self.store.name
+        if self.id_:
+            retv += '/' + self.id_
+        return retv

@@ -159,7 +159,7 @@ def log(repository, abbrev):
         raise Error('No commit found')
 
     def format_commit(commit, snapshots, diff):
-        refs = [snapshot.shorthand_reference for snapshot in snapshots]
+        refs = [snapshot.reference for snapshot in snapshots]
         if commit.id == head:
             refs.insert(0, 'HEAD')
 
