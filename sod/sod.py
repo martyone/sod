@@ -107,11 +107,13 @@ pass_repository = click.make_pass_decorator(DiscoveredRepository, ensure=True)
 @click.group(cls=ErrorHandlingGroup)
 @click.option('--debug', is_flag=True, help='Enable debugging output')
 def cli(debug):
+    """sod - a digest tracker"""
     init_logging(debug=debug)
     repository.AuxStore.register_type(PlainAuxStore)
 
 @cli.command()
 def init():
+    """Initialize a sod repository under the current working directory."""
     Repository.initialize(os.getcwd())
 
 @cli.command()
@@ -121,6 +123,7 @@ def init():
 @click.argument('path', nargs=-1)
 @pass_repository
 def status(repository, staged, rehash, abbrev, path):
+    """Summarize changes since last commit."""
     diff_cached = repository.diff_staged(path)
 
     if not staged:
@@ -137,24 +140,28 @@ def status(repository, staged, rehash, abbrev, path):
 @click.argument('path', nargs=-1)
 @pass_repository
 def add(repository, path):
+    """Stage changes for recording with next commit."""
     repository.add(path)
 
 @cli.command()
 @click.argument('path', nargs=-1)
 @pass_repository
 def reset(repository, path):
+    """Reset changes staged for recording with next commit."""
     repository.reset(path)
 
 @cli.command()
 @click.option('-m', '--message', help='Commit message')
 @pass_repository
 def commit(repository, message):
+    """Record changes to the repository."""
     repository.commit(message)
 
 @cli.command()
 @click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
 @pass_repository
 def log(repository, abbrev):
+    """Show commit log."""
     try:
         head = repository.git.head.target
     except pygit2.GitError:
@@ -186,21 +193,24 @@ def log(repository, abbrev):
 
 @cli.group()
 def aux():
+    """Manage auxiliary data stores."""
     pass
 
 @aux.command()
 @pass_repository
 def list(repository):
+    """List auxiliary data stores."""
     for store in repository.aux_stores:
         click.echo(store.name + ' ' + store.url + ' (' + store.type_name() + ')')
 
 @aux.command()
 @click.argument('name')
 @click.argument('url')
-@click.option('--type', 'store_type', default=PlainAuxStore.type_name(), help='Store type')
+@click.option('--type', 'store_type', metavar='TYPE', default=PlainAuxStore.type_name(),
+        help='Store type')
 @pass_repository
 def add(repository, name, url, store_type):
-    """Add auxiliary data store
+    """Add an auxiliary data store.
 
     Available types:
 
@@ -212,6 +222,7 @@ def add(repository, name, url, store_type):
 @click.argument('name')
 @pass_repository
 def remove(repository, name):
+    """Remove an auxiliary data store."""
     repository.aux_stores.delete(name)
 
 @aux.command()
@@ -219,6 +230,7 @@ def remove(repository, name):
 @click.argument('name', required=False)
 @pass_repository
 def update(repository, update_all, name):
+    """Update an auxiliary data store."""
     if name:
         repository.aux_stores.update([name])
     elif update_all:
@@ -232,4 +244,5 @@ def update(repository, update_all, name):
 @click.option('--from', 'aux_store', help='Restore using the given auxiliary data store')
 @pass_repository
 def restore(repository, path, ref_ish, aux_store):
+    """Restore data using an auxiliary data store."""
     repository.restore(path, ref_ish, aux_store)
