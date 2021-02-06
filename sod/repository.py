@@ -358,7 +358,7 @@ class AuxStore(ABC):
     def register_type(cls, typecls):
         name = typecls.type_name()
         if name in cls._types:
-            raise Error("Store type %1 already registered".format(name))
+            raise Error(f"Store type '{name}' already registered")
         cls._types[name] = typecls
 
     @classmethod
