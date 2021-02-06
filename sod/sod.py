@@ -114,7 +114,7 @@ def cli(debug):
 @cli.command()
 def init():
     """Initialize a sod repository under the current working directory."""
-    Repository.initialize(os.getcwd())
+    repository.Repository.initialize(os.getcwd())
 
 @cli.command()
 @click.option('--staged', is_flag=True, help='Only check the index')
