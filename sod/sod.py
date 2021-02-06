@@ -246,8 +246,8 @@ def update(repository, update_all, name):
 @cli.command()
 @click.argument('path')
 @click.argument('ref-ish', required=False)
-@click.option('--from', 'aux_store', help='Restore using the given auxiliary data store')
+@click.option('--from', 'aux_store', help='Choose particular auxiliary data store to restore from')
 @pass_repository
 def restore(repository, path, ref_ish, aux_store):
-    """Restore data using an auxiliary data store."""
+    """Restore data from an auxiliary data store."""
     repository.restore(path, ref_ish, aux_store)
