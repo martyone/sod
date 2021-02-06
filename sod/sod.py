@@ -108,8 +108,13 @@ pass_repository = click.make_pass_decorator(DiscoveredRepository, ensure=True)
 @click.option('--debug', is_flag=True, help='Enable debugging output')
 def cli(debug):
     """sod - a digest tracker"""
-    init_logging(debug=debug)
-    repository.AuxStore.register_type(PlainAuxStore)
+    if not cli.initialized:
+        init_logging(debug=debug)
+        repository.AuxStore.register_type(PlainAuxStore)
+        cli.initialized = True
+
+# FIXME Properly allow invoking cli repeatedly (e.g. for testing)
+cli.initialized = False
 
 @cli.command()
 def init():
