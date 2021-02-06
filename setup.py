@@ -8,6 +8,7 @@ setup(
     install_requires=[
         'click',
         'pygit2',
+        'pytest',
     ],
     entry_points='''
         [console_scripts]
