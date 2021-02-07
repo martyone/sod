@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from datetime import datetime
 import logging
 import os
 import pygit2
@@ -15,7 +16,9 @@ SOD_DIR = '.sod'
 SODIGNORE_FILE = '.sodignore'
 SKIP_TREE_NAMES = {'.snapshots', SOD_DIR}
 SKIP_TREE_FLAGS = {'.git', '.svn', SODIGNORE_FILE}
-FAKE_SIGNATURE = pygit2.Signature('sod', 'sod@localhost')
+COMMIT_DATE_ENV_VAR = 'SOD_COMMIT_DATE'
+FAKE_SIGNATURE_NAME = 'sod'
+FAKE_SIGNATURE_EMAIL = 'sod@localhost'
 SNAPSHOT_REF_PREFIX = 'refs/snapshots/'
 
 DIFF_FLAGS = pygit2.GIT_DIFF_INCLUDE_UNMODIFIED
@@ -191,8 +194,26 @@ class Repository:
             parents = []
             ref_name = 'refs/heads/master'
 
-        self.git.create_commit(ref_name, FAKE_SIGNATURE, FAKE_SIGNATURE,
+        if COMMIT_DATE_ENV_VAR in os.environ:
+            try:
+                time, offset = self._parse_date_time(os.environ[COMMIT_DATE_ENV_VAR])
+            except ValueError as e:
+                raise Error(f'Invalid date string in {COMMIT_DATE_ENV_VAR} environment variable: {e}')
+        else:
+            time = datetime.now().timestamp()
+            offset = datetime.now().utcoffset()
+
+        signature = pygit2.Signature(FAKE_SIGNATURE_NAME, FAKE_SIGNATURE_EMAIL, time, offset)
+
+        self.git.create_commit(ref_name, signature, signature,
                 message, self.git.index.write_tree(), parents)
+
+    def _parse_date_time(self, string):
+        result = re.match('^([0-9]+) ([-+][0-9]+)$', string)
+        if not result:
+            raise ValueError('Could not parse date. '
+                    f'Expected format: \"<unix timestamp> <time zone offset>\", got: {string}')
+        return (int(result.group(1)), int(result.group(2)))
 
     def restore(self, path, refish, aux_store_name):
         try:
