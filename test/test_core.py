@@ -8,8 +8,8 @@ from . import utils
 STATUS_STAGED_HEADING = 'Changes staged for commit:'
 STATUS_UNSTAGED_HEADING = 'Changes not staged for commit:'
 
-def test_core(testcli):
-    result = testcli(['status'])
+def test_core(empty_repo):
+    result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
 
@@ -25,7 +25,7 @@ def test_core(testcli):
     utils.write('x/y/e.txt', 'e content')
     utils.write('x/y/f.txt', 'f content')
 
-    result = testcli(['status'])
+    result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
 
@@ -39,11 +39,11 @@ def test_core(testcli):
 
     """)
 
-    testcli(['add', 'a.txt'])
-    testcli(['add', 'c.txt'])
-    testcli(['add', 'x/y/e.txt'])
+    utils.run(['add', 'a.txt'])
+    utils.run(['add', 'c.txt'])
+    utils.run(['add', 'x/y/e.txt'])
 
-    result = testcli(['status'])
+    result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
           added:         -           a.txt
@@ -58,9 +58,9 @@ def test_core(testcli):
     """)
 
     os.environ['SOD_COMMIT_DATE'] = utils.format_commit_date(1970, 1, 1)
-    testcli(['commit', '-m', 'Initial'])
+    utils.run(['commit', '-m', 'Initial'])
 
-    result = testcli(['status'])
+    result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
 
@@ -75,7 +75,7 @@ def test_core(testcli):
     os.remove('c.txt')
     os.rename('x/y/e.txt', 'x/y/E.txt')
 
-    result = testcli(['status'])
+    result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
 
@@ -89,10 +89,10 @@ def test_core(testcli):
 
     """)
 
-    testcli(['add', 'c.txt'])
-    testcli(['add', 'x/y/e.txt'])
+    utils.run(['add', 'c.txt'])
+    utils.run(['add', 'x/y/e.txt'])
 
-    result = testcli(['status'])
+    result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
           deleted:       34f0bbc310  c.txt
@@ -107,9 +107,9 @@ def test_core(testcli):
 
     """)
 
-    testcli(['add', 'x/y/E.txt'])
+    utils.run(['add', 'x/y/E.txt'])
 
-    result = testcli(['status'])
+    result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
           deleted:       34f0bbc310  c.txt
@@ -123,9 +123,9 @@ def test_core(testcli):
 
     """)
 
-    testcli(['reset', 'x/y/e.txt'])
+    utils.run(['reset', 'x/y/e.txt'])
 
-    result = testcli(['status'])
+    result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
           deleted:       34f0bbc310  c.txt
@@ -140,10 +140,10 @@ def test_core(testcli):
 
     """)
 
-    testcli(['add', 'a.txt'])
-    testcli(['add', 'x/y/e.txt'])
+    utils.run(['add', 'a.txt'])
+    utils.run(['add', 'x/y/e.txt'])
 
-    result = testcli(['status'])
+    result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
           modified:      112c74d3c7  a.txt
@@ -158,9 +158,9 @@ def test_core(testcli):
     """)
 
     os.environ['SOD_COMMIT_DATE'] = utils.format_commit_date(1970, 1, 2)
-    testcli(['commit', '-m', 'Update 1'])
+    utils.run(['commit', '-m', 'Update 1'])
 
-    result = testcli(['status'])
+    result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
 
@@ -171,7 +171,7 @@ def test_core(testcli):
 
     """)
 
-    result = testcli(['log'])
+    result = utils.run(['log'])
     assert result.output == textwrap.dedent(f"""\
         commit ce2ae575feb8305d85cb41667b15aae02dfe5e43 (HEAD)
         Date: Fri Jan  2 01:00:00 1970

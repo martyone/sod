@@ -6,21 +6,15 @@ import sod.sod
 from . import utils
 
 @pytest.fixture
-def testcli():
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        def invoke(args, *, expected_exit_code=0):
-            result = runner.invoke(sod.sod.cli, args, catch_exceptions=False)
+def chdir_tmp_path(tmp_path):
+    old_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        yield tmp_path
+    finally:
+        os.chdir(old_cwd)
 
-            if expected_exit_code == 0:
-                assert result.exit_code == 0, "Command exited with non-zero exit code " \
-                    + f"{result.exit_code}. output: '''{result.output}'''"
-            else:
-                assert result.exit_code == expected_exit_code
-
-            return result
-
-
-        invoke(['init'])
-
-        yield invoke
+@pytest.fixture
+def empty_repo(chdir_tmp_path):
+    utils.run(['init'])
+    return chdir_tmp_path
