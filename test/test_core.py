@@ -17,43 +17,43 @@ def test_core(empty_repo):
 
     """)
 
-    utils.write('a.txt', 'a content')
-    utils.write('b.txt', 'b content')
-    utils.write('c.txt', 'c content')
+    utils.write('a (-_*).txt', 'a content')
+    utils.write('b (-_*).txt', 'b content')
+    utils.write('c (-_*).txt', 'c content')
     os.makedirs('x/y')
-    utils.write('x/y/d.txt', 'd content')
-    utils.write('x/y/e.txt', 'e content')
-    utils.write('x/y/f.txt', 'f content')
+    utils.write('x/y/d (-_*).txt', 'd content')
+    utils.write('x/y/e (-_*).txt', 'e content')
+    utils.write('x/y/f (-_*).txt', 'f content')
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
 
         {STATUS_UNSTAGED_HEADING}
-          added:         -           a.txt
-          added:         -           b.txt
-          added:         -           c.txt
-          added:         -           x/y/d.txt
-          added:         -           x/y/e.txt
-          added:         -           x/y/f.txt
+          added:         -           a (-_*).txt
+          added:         -           b (-_*).txt
+          added:         -           c (-_*).txt
+          added:         -           x/y/d (-_*).txt
+          added:         -           x/y/e (-_*).txt
+          added:         -           x/y/f (-_*).txt
 
     """)
 
-    utils.run(['add', 'a.txt'])
-    utils.run(['add', 'c.txt'])
-    utils.run(['add', 'x/y/e.txt'])
+    utils.run(['add', 'a (-_*).txt'])
+    utils.run(['add', 'c (-_*).txt'])
+    utils.run(['add', 'x/y/e (-_*).txt'])
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
-          added:         -           a.txt
-          added:         -           c.txt
-          added:         -           x/y/e.txt
+          added:         -           a (-_*).txt
+          added:         -           c (-_*).txt
+          added:         -           x/y/e (-_*).txt
 
         {STATUS_UNSTAGED_HEADING}
-          added:         -           b.txt
-          added:         -           x/y/d.txt
-          added:         -           x/y/f.txt
+          added:         -           b (-_*).txt
+          added:         -           x/y/d (-_*).txt
+          added:         -           x/y/f (-_*).txt
 
     """)
 
@@ -65,95 +65,95 @@ def test_core(empty_repo):
         {STATUS_STAGED_HEADING}
 
         {STATUS_UNSTAGED_HEADING}
-          added:         -           b.txt
-          added:         -           x/y/d.txt
-          added:         -           x/y/f.txt
+          added:         -           b (-_*).txt
+          added:         -           x/y/d (-_*).txt
+          added:         -           x/y/f (-_*).txt
 
     """)
 
-    utils.write('a.txt', 'a updated content')
-    os.remove('c.txt')
-    os.rename('x/y/e.txt', 'x/y/E.txt')
+    utils.write('a (-_*).txt', 'a updated content')
+    os.remove('c (-_*).txt')
+    os.rename('x/y/e (-_*).txt', 'x/y/E (-_*).txt')
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
 
         {STATUS_UNSTAGED_HEADING}
-          modified:      112c74d3c7  a.txt
-          added:         -           b.txt
-          deleted:       34f0bbc310  c.txt
-          renamed:       -           x/y/{{e.txt -> E.txt}}
-          added:         -           x/y/d.txt
-          added:         -           x/y/f.txt
+          modified:      112c74d3c7  a (-_*).txt
+          added:         -           b (-_*).txt
+          deleted:       34f0bbc310  c (-_*).txt
+          renamed:       -           x/y/{{e (-_*).txt -> E (-_*).txt}}
+          added:         -           x/y/d (-_*).txt
+          added:         -           x/y/f (-_*).txt
 
     """)
 
-    utils.run(['add', 'c.txt'])
-    utils.run(['add', 'x/y/e.txt'])
+    utils.run(['add', 'c (-_*).txt'])
+    utils.run(['add', 'x/y/e (-_*).txt'])
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
-          deleted:       34f0bbc310  c.txt
-          deleted:       776b0e8fbd  x/y/e.txt
+          deleted:       34f0bbc310  c (-_*).txt
+          deleted:       776b0e8fbd  x/y/e (-_*).txt
 
         {STATUS_UNSTAGED_HEADING}
-          modified:      112c74d3c7  a.txt
-          added:         -           b.txt
-          added:         -           x/y/E.txt
-          added:         -           x/y/d.txt
-          added:         -           x/y/f.txt
+          modified:      112c74d3c7  a (-_*).txt
+          added:         -           b (-_*).txt
+          added:         -           x/y/E (-_*).txt
+          added:         -           x/y/d (-_*).txt
+          added:         -           x/y/f (-_*).txt
 
     """)
 
-    utils.run(['add', 'x/y/E.txt'])
+    utils.run(['add', 'x/y/E (-_*).txt'])
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
-          deleted:       34f0bbc310  c.txt
-          renamed:       -           x/y/{{e.txt -> E.txt}}
+          deleted:       34f0bbc310  c (-_*).txt
+          renamed:       -           x/y/{{e (-_*).txt -> E (-_*).txt}}
 
         {STATUS_UNSTAGED_HEADING}
-          modified:      112c74d3c7  a.txt
-          added:         -           b.txt
-          added:         -           x/y/d.txt
-          added:         -           x/y/f.txt
+          modified:      112c74d3c7  a (-_*).txt
+          added:         -           b (-_*).txt
+          added:         -           x/y/d (-_*).txt
+          added:         -           x/y/f (-_*).txt
 
     """)
 
-    utils.run(['reset', 'x/y/e.txt'])
+    utils.run(['reset', 'x/y/e (-_*).txt'])
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
-          deleted:       34f0bbc310  c.txt
-          added:         -           x/y/E.txt
+          deleted:       34f0bbc310  c (-_*).txt
+          added:         -           x/y/E (-_*).txt
 
         {STATUS_UNSTAGED_HEADING}
-          modified:      112c74d3c7  a.txt
-          added:         -           b.txt
-          added:         -           x/y/d.txt
-          deleted:       776b0e8fbd  x/y/e.txt
-          added:         -           x/y/f.txt
+          modified:      112c74d3c7  a (-_*).txt
+          added:         -           b (-_*).txt
+          added:         -           x/y/d (-_*).txt
+          deleted:       776b0e8fbd  x/y/e (-_*).txt
+          added:         -           x/y/f (-_*).txt
 
     """)
 
-    utils.run(['add', 'a.txt'])
-    utils.run(['add', 'x/y/e.txt'])
+    utils.run(['add', 'a (-_*).txt'])
+    utils.run(['add', 'x/y/e (-_*).txt'])
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
-          modified:      112c74d3c7  a.txt
-          deleted:       34f0bbc310  c.txt
-          renamed:       -           x/y/{{e.txt -> E.txt}}
+          modified:      112c74d3c7  a (-_*).txt
+          deleted:       34f0bbc310  c (-_*).txt
+          renamed:       -           x/y/{{e (-_*).txt -> E (-_*).txt}}
 
         {STATUS_UNSTAGED_HEADING}
-          added:         -           b.txt
-          added:         -           x/y/d.txt
-          added:         -           x/y/f.txt
+          added:         -           b (-_*).txt
+          added:         -           x/y/d (-_*).txt
+          added:         -           x/y/f (-_*).txt
 
     """)
 
@@ -165,31 +165,31 @@ def test_core(empty_repo):
         {STATUS_STAGED_HEADING}
 
         {STATUS_UNSTAGED_HEADING}
-          added:         -           b.txt
-          added:         -           x/y/d.txt
-          added:         -           x/y/f.txt
+          added:         -           b (-_*).txt
+          added:         -           x/y/d (-_*).txt
+          added:         -           x/y/f (-_*).txt
 
     """)
 
     result = utils.run(['log'])
     assert result.output == textwrap.dedent(f"""\
-        commit ce2ae575feb8305d85cb41667b15aae02dfe5e43 (HEAD)
+        commit e3773e8b4337e2b2709a4f1b0976f42b55884c96 (HEAD)
         Date: Fri Jan  2 01:00:00 1970
 
             Update 1
 
-          modified:      112c74d3c7  a.txt
-          deleted:       34f0bbc310  c.txt
-          renamed:       -           x/y/{{e.txt -> E.txt}}
+          modified:      112c74d3c7  a (-_*).txt
+          deleted:       34f0bbc310  c (-_*).txt
+          renamed:       -           x/y/{{e (-_*).txt -> E (-_*).txt}}
 
-        commit fbae4e311218d479e4e6e5fa9f269796b319e5c9
+        commit f3fdfaa0b19548074c5d9879e98b20c2749dad78
         Date: Thu Jan  1 01:00:00 1970
 
             Initial
 
-          added:         -           a.txt
-          added:         -           c.txt
-          added:         -           x/y/e.txt
+          added:         -           a (-_*).txt
+          added:         -           c (-_*).txt
+          added:         -           x/y/e (-_*).txt
 
 
     """)
