@@ -124,7 +124,7 @@ class TestCommitAdditions:
 
     def test_log(self):
         result = utils.run(['log'])
-        assert result.output == textwrap.dedent(f"""\
+        assert result.output == textwrap.dedent("""\
             commit e3df93855539e590a6c185b388f69f3f5f80a7b2 (HEAD)
             Date: Thu Jan  1 01:00:00 1970
 
@@ -173,7 +173,7 @@ class TestCommitModifications:
 
     def test_log(self):
         result = utils.run(['log'])
-        assert result.output == textwrap.dedent(f"""\
+        assert result.output == textwrap.dedent("""\
             commit 7868c3880c865226b10511ad19c9c370980e1679 (HEAD)
             Date: Fri Jan  2 01:00:00 1970
 
@@ -224,7 +224,7 @@ class TestCommitDeletions:
 
     def test_log(self):
         result = utils.run(['log'])
-        assert result.output == textwrap.dedent(f"""\
+        assert result.output == textwrap.dedent("""\
             commit 2cd8622c34df084b09bfae219863c1d23616611a (HEAD)
             Date: Fri Jan  2 01:00:00 1970
 
@@ -290,7 +290,7 @@ class TestCommitRenames:
 
     def test_log(self):
         result = utils.run(['log'])
-        assert result.output == textwrap.dedent(f"""\
+        assert result.output == textwrap.dedent("""\
             commit bf76bea4807eaff5711ffa5d57e05b1234e78291 (HEAD)
             Date: Fri Jan  2 01:00:00 1970
 
