@@ -7,8 +7,23 @@ from . import utils
 
 STATUS_STAGED_HEADING = 'Changes staged for commit:'
 STATUS_UNSTAGED_HEADING = 'Changes not staged for commit:'
+INITIAL_COMMIT_LOG = """\
+commit 8d54674c6dc4a480daaf548862a7197b103b3669
+Date: Thu Jan  1 01:00:00 1970
 
-def test_core(empty_repo):
+    Initial
+
+  added:         -           a (-_*).txt
+  added:         -           b (-_*).txt
+  added:         -           c (-_*).txt
+  added:         -           x/y/d (-_*).txt
+  added:         -           x/y/e (-_*).txt
+  added:         -           x/y/f (-_*).txt
+
+
+"""
+
+def test_empty_repo_status(empty_repo):
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
@@ -17,14 +32,7 @@ def test_core(empty_repo):
 
     """)
 
-    utils.write('a (-_*).txt', 'a content')
-    utils.write('b (-_*).txt', 'b content')
-    utils.write('c (-_*).txt', 'c content')
-    os.makedirs('x/y')
-    utils.write('x/y/d (-_*).txt', 'd content')
-    utils.write('x/y/e (-_*).txt', 'e content')
-    utils.write('x/y/f (-_*).txt', 'f content')
-
+def test_unstaged_additions_status(no_commit_repo):
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
@@ -39,6 +47,7 @@ def test_core(empty_repo):
 
     """)
 
+def test_stage_additions(no_commit_repo):
     utils.run(['add', 'a (-_*).txt'])
     utils.run(['add', 'c (-_*).txt'])
     utils.run(['add', 'x/y/e (-_*).txt'])
@@ -57,38 +66,127 @@ def test_core(empty_repo):
 
     """)
 
-    os.environ['SOD_COMMIT_DATE'] = utils.format_commit_date(1970, 1, 1)
-    utils.run(['commit', '-m', 'Initial'])
+@pytest.mark.xfail
+def test_stage_additions_from_dot(no_commit_repo):
+    utils.run(['add', '.'])
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
+          added:         -           a (-_*).txt
+          added:         -           b (-_*).txt
+          added:         -           c (-_*).txt
+          added:         -           x/y/d (-_*).txt
+          added:         -           x/y/e (-_*).txt
+          added:         -           x/y/f (-_*).txt
 
         {STATUS_UNSTAGED_HEADING}
-          added:         -           b (-_*).txt
-          added:         -           x/y/d (-_*).txt
-          added:         -           x/y/f (-_*).txt
 
     """)
 
+def test_stage_additions_by_dir(no_commit_repo):
+    utils.run(['add', 'x'])
+
+    result = utils.run(['status'])
+    assert result.output == textwrap.dedent(f"""\
+        {STATUS_STAGED_HEADING}
+          added:         -           x/y/d (-_*).txt
+          added:         -           x/y/e (-_*).txt
+          added:         -           x/y/f (-_*).txt
+
+        {STATUS_UNSTAGED_HEADING}
+          added:         -           a (-_*).txt
+          added:         -           b (-_*).txt
+          added:         -           c (-_*).txt
+
+    """)
+
+class TestCommitAdditions:
+    @pytest.fixture(scope='class', autouse=True)
+    def commit_additions(self, no_commit_repo):
+        utils.run(['add', 'a (-_*).txt'])
+        utils.run(['add', 'c (-_*).txt'])
+        utils.run(['add', 'x/y/e (-_*).txt'])
+        with utils.commit_date(1970, 1, 1):
+            utils.run(['commit', '-m', 'Initial'])
+
+    def test_status(self):
+        result = utils.run(['status'])
+        assert result.output == textwrap.dedent(f"""\
+            {STATUS_STAGED_HEADING}
+
+            {STATUS_UNSTAGED_HEADING}
+              added:         -           b (-_*).txt
+              added:         -           x/y/d (-_*).txt
+              added:         -           x/y/f (-_*).txt
+
+        """)
+
+    def test_log(self):
+        result = utils.run(['log'])
+        assert result.output == textwrap.dedent(f"""\
+            commit f3fdfaa0b19548074c5d9879e98b20c2749dad78 (HEAD)
+            Date: Thu Jan  1 01:00:00 1970
+
+                Initial
+
+              added:         -           a (-_*).txt
+              added:         -           c (-_*).txt
+              added:         -           x/y/e (-_*).txt
+
+
+        """)
+
+def test_stage_modifications(one_commit_repo):
     utils.write('a (-_*).txt', 'a updated content')
-    os.remove('c (-_*).txt')
-    os.rename('x/y/e (-_*).txt', 'x/y/E (-_*).txt')
+    utils.write('x/y/e (-_*).txt', 'e updated content')
+    utils.run(['add', 'a (-_*).txt'])
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
+          modified:      112c74d3c7  a (-_*).txt
 
         {STATUS_UNSTAGED_HEADING}
-          modified:      112c74d3c7  a (-_*).txt
-          added:         -           b (-_*).txt
-          deleted:       34f0bbc310  c (-_*).txt
-          renamed:       -           x/y/{{e (-_*).txt -> E (-_*).txt}}
-          added:         -           x/y/d (-_*).txt
-          added:         -           x/y/f (-_*).txt
+          modified:      776b0e8fbd  x/y/e (-_*).txt
 
     """)
 
+class TestCommitModifications:
+    @pytest.fixture(scope='class', autouse=True)
+    def commit_modifications(self, one_commit_repo):
+        utils.write('a (-_*).txt', 'a updated content')
+        utils.write('x/y/e (-_*).txt', 'e updated content')
+        utils.run(['add', 'a (-_*).txt'])
+        with utils.commit_date(1970, 1, 2):
+            utils.run(['commit', '-m', 'Update 1'])
+
+    def test_status(self):
+        result = utils.run(['status'])
+        assert result.output == textwrap.dedent(f"""\
+            {STATUS_STAGED_HEADING}
+
+            {STATUS_UNSTAGED_HEADING}
+              modified:      776b0e8fbd  x/y/e (-_*).txt
+
+        """)
+
+    def test_log(self):
+        result = utils.run(['log'])
+        assert result.output == textwrap.dedent(f"""\
+            commit 79226a3384cf0911de69fe87d9222646ac5cfa68 (HEAD)
+            Date: Fri Jan  2 01:00:00 1970
+
+                Update 1
+
+              modified:      112c74d3c7  a (-_*).txt
+
+        """) + INITIAL_COMMIT_LOG
+
+def test_stage_deletions(one_commit_repo):
+    os.remove('a (-_*).txt')
+    os.remove('c (-_*).txt')
+    os.remove('x/y/e (-_*).txt')
     utils.run(['add', 'c (-_*).txt'])
     utils.run(['add', 'x/y/e (-_*).txt'])
 
@@ -99,97 +197,105 @@ def test_core(empty_repo):
           deleted:       776b0e8fbd  x/y/e (-_*).txt
 
         {STATUS_UNSTAGED_HEADING}
-          modified:      112c74d3c7  a (-_*).txt
-          added:         -           b (-_*).txt
-          added:         -           x/y/E (-_*).txt
-          added:         -           x/y/d (-_*).txt
-          added:         -           x/y/f (-_*).txt
+          deleted:       112c74d3c7  a (-_*).txt
 
     """)
 
-    utils.run(['add', 'x/y/E (-_*).txt'])
+class TestCommitDeletions:
+    @pytest.fixture(scope='class', autouse=True)
+    def commit_deletions(self, one_commit_repo):
+        os.remove('a (-_*).txt')
+        os.remove('c (-_*).txt')
+        os.remove('x/y/e (-_*).txt')
+        utils.run(['add', 'c (-_*).txt'])
+        utils.run(['add', 'x/y/e (-_*).txt'])
+        with utils.commit_date(1970, 1, 2):
+            utils.run(['commit', '-m', 'Update 1'])
 
-    result = utils.run(['status'])
-    assert result.output == textwrap.dedent(f"""\
-        {STATUS_STAGED_HEADING}
-          deleted:       34f0bbc310  c (-_*).txt
-          renamed:       -           x/y/{{e (-_*).txt -> E (-_*).txt}}
+    def test_status(self):
+        result = utils.run(['status'])
+        assert result.output == textwrap.dedent(f"""\
+            {STATUS_STAGED_HEADING}
 
-        {STATUS_UNSTAGED_HEADING}
-          modified:      112c74d3c7  a (-_*).txt
-          added:         -           b (-_*).txt
-          added:         -           x/y/d (-_*).txt
-          added:         -           x/y/f (-_*).txt
+            {STATUS_UNSTAGED_HEADING}
+              deleted:       112c74d3c7  a (-_*).txt
 
-    """)
+        """)
 
-    utils.run(['reset', 'x/y/e (-_*).txt'])
+    def test_log(self):
+        result = utils.run(['log'])
+        assert result.output == textwrap.dedent(f"""\
+            commit 569828a169ccef8f05b825b54c23db10a600b0f8 (HEAD)
+            Date: Fri Jan  2 01:00:00 1970
 
-    result = utils.run(['status'])
-    assert result.output == textwrap.dedent(f"""\
-        {STATUS_STAGED_HEADING}
-          deleted:       34f0bbc310  c (-_*).txt
-          added:         -           x/y/E (-_*).txt
+                Update 1
 
-        {STATUS_UNSTAGED_HEADING}
-          modified:      112c74d3c7  a (-_*).txt
-          added:         -           b (-_*).txt
-          added:         -           x/y/d (-_*).txt
-          deleted:       776b0e8fbd  x/y/e (-_*).txt
-          added:         -           x/y/f (-_*).txt
+              deleted:       34f0bbc310  c (-_*).txt
+              deleted:       776b0e8fbd  x/y/e (-_*).txt
 
-    """)
+        """) + INITIAL_COMMIT_LOG
 
+
+def test_stage_renames_partial(one_commit_repo):
+    os.rename('a (-_*).txt', 'A (-_*).txt')
+    os.rename('x/y/e (-_*).txt', 'x/y/E (-_*).txt')
     utils.run(['add', 'a (-_*).txt'])
-    utils.run(['add', 'x/y/e (-_*).txt'])
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
-          modified:      112c74d3c7  a (-_*).txt
-          deleted:       34f0bbc310  c (-_*).txt
-          renamed:       -           x/y/{{e (-_*).txt -> E (-_*).txt}}
+          deleted:       112c74d3c7  a (-_*).txt
 
         {STATUS_UNSTAGED_HEADING}
-          added:         -           b (-_*).txt
-          added:         -           x/y/d (-_*).txt
-          added:         -           x/y/f (-_*).txt
+          added:         -           A (-_*).txt
+          renamed:       -           x/y/{{e (-_*).txt -> E (-_*).txt}}
 
     """)
 
-    os.environ['SOD_COMMIT_DATE'] = utils.format_commit_date(1970, 1, 2)
-    utils.run(['commit', '-m', 'Update 1'])
+def test_stage_renames(one_commit_repo):
+    os.rename('a (-_*).txt', 'A (-_*).txt')
+    os.rename('x/y/e (-_*).txt', 'x/y/E (-_*).txt')
+    utils.run(['add', 'a (-_*).txt'])
+    utils.run(['add', 'A (-_*).txt'])
 
     result = utils.run(['status'])
     assert result.output == textwrap.dedent(f"""\
         {STATUS_STAGED_HEADING}
+          renamed:       -           a (-_*).txt -> A (-_*).txt
 
         {STATUS_UNSTAGED_HEADING}
-          added:         -           b (-_*).txt
-          added:         -           x/y/d (-_*).txt
-          added:         -           x/y/f (-_*).txt
-
-    """)
-
-    result = utils.run(['log'])
-    assert result.output == textwrap.dedent(f"""\
-        commit e3773e8b4337e2b2709a4f1b0976f42b55884c96 (HEAD)
-        Date: Fri Jan  2 01:00:00 1970
-
-            Update 1
-
-          modified:      112c74d3c7  a (-_*).txt
-          deleted:       34f0bbc310  c (-_*).txt
           renamed:       -           x/y/{{e (-_*).txt -> E (-_*).txt}}
 
-        commit f3fdfaa0b19548074c5d9879e98b20c2749dad78
-        Date: Thu Jan  1 01:00:00 1970
-
-            Initial
-
-          added:         -           a (-_*).txt
-          added:         -           c (-_*).txt
-          added:         -           x/y/e (-_*).txt
-
-
     """)
+
+class TestCommitRenames:
+    @pytest.fixture(scope='class', autouse=True)
+    def commit_renames(self, one_commit_repo):
+        os.rename('a (-_*).txt', 'A (-_*).txt')
+        os.rename('x/y/e (-_*).txt', 'x/y/E (-_*).txt')
+        utils.run(['add', 'a (-_*).txt'])
+        utils.run(['add', 'A (-_*).txt'])
+        with utils.commit_date(1970, 1, 2):
+            utils.run(['commit', '-m', 'Update 1'])
+
+    def test_status(self):
+        result = utils.run(['status'])
+        assert result.output == textwrap.dedent(f"""\
+            {STATUS_STAGED_HEADING}
+
+            {STATUS_UNSTAGED_HEADING}
+              renamed:       -           x/y/{{e (-_*).txt -> E (-_*).txt}}
+
+        """)
+
+    def test_log(self):
+        result = utils.run(['log'])
+        assert result.output == textwrap.dedent(f"""\
+            commit fba505d27b263e2cc47b7707d07acef0ea7f62f6 (HEAD)
+            Date: Fri Jan  2 01:00:00 1970
+
+                Update 1
+
+              renamed:       -           a (-_*).txt -> A (-_*).txt
+
+        """) + INITIAL_COMMIT_LOG

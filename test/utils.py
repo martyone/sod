@@ -1,4 +1,5 @@
 from click.testing import CliRunner
+import contextlib
 from datetime import datetime, timezone
 import os
 import sod.sod
@@ -23,3 +24,11 @@ def write(path, content):
 def format_commit_date(year, month, day, hour=0, minute=0, second=0):
     dt = datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
     return str(int(dt.timestamp())) + ' +0000'
+
+@contextlib.contextmanager
+def commit_date(year, month, day, hour=0, minute=0, second=0):
+    os.environ['SOD_COMMIT_DATE'] = format_commit_date(year, month, day, hour, minute, second)
+    try:
+        yield
+    finally:
+        del os.environ['SOD_COMMIT_DATE']
