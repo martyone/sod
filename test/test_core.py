@@ -1,6 +1,8 @@
 from datetime import datetime
+import math
 import os
 import pytest
+import re
 import textwrap
 
 from . import utils
@@ -299,3 +301,11 @@ class TestCommitRenames:
               renamed:       -           a  (-_*).txt -> A  (-_*).txt
 
         """) + INITIAL_COMMIT_LOG
+
+def test_commit_now(no_commit_repo):
+    utils.run(['add', 'a  (-_*).txt'])
+    utils.run(['commit', '-m', 'Initial'])
+    result = utils.run(['log'])
+    commit_date_str = re.search(r'^Date: (.*)$', result.output, re.MULTILINE).group(1)
+    commit_date = datetime.strptime(commit_date_str, '%c')
+    assert math.fabs(datetime.now().timestamp() - commit_date.timestamp()) < 10

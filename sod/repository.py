@@ -194,14 +194,14 @@ class Repository:
             parents = []
             ref_name = 'refs/heads/master'
 
+        time = -1
+        offset = 0
+
         if COMMIT_DATE_ENV_VAR in os.environ:
             try:
                 time, offset = self._parse_date_time(os.environ[COMMIT_DATE_ENV_VAR])
             except ValueError as e:
                 raise Error(f'Invalid date string in {COMMIT_DATE_ENV_VAR} environment variable: {e}')
-        else:
-            time = datetime.now().timestamp()
-            offset = datetime.now().utcoffset()
 
         signature = pygit2.Signature(FAKE_SIGNATURE_NAME, FAKE_SIGNATURE_EMAIL, time, offset)
 
@@ -209,11 +209,11 @@ class Repository:
                 message, self.git.index.write_tree(), parents)
 
     def _parse_date_time(self, string):
-        result = re.match('^([0-9]+) ([-+][0-9]+)$', string)
+        result = re.match('^([0-9]+) ([-+][0-9][0-9])([0-9][0-9])$', string)
         if not result:
             raise ValueError('Could not parse date. '
                     f'Expected format: \"<unix timestamp> <time zone offset>\", got: {string}')
-        return (int(result.group(1)), int(result.group(2)))
+        return (int(result.group(1)), int(result.group(2)) * 60 + int(result.group(3)))
 
     def restore(self, path, refish, aux_store_name):
         try:
