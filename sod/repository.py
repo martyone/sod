@@ -313,7 +313,7 @@ class AuxStores:
         return AuxStore.create(type_name, self._repository, name, url)
 
     def __iter__(self):
-        pattern = re.compile('^sod-aux-store\.([^.]+)\.url$')
+        pattern = re.compile(r'^sod-aux-store\.([^.]+)\.url$')
         for item in self._repository.git.config:
             match = pattern.search(item.name)
             if not match:
