@@ -4,6 +4,24 @@ from datetime import datetime, timezone
 import os
 import sod.sod
 
+STATUS_STAGED_HEADING = 'Changes staged for commit:'
+STATUS_UNSTAGED_HEADING = 'Changes not staged for commit:'
+INITIAL_COMMIT_LOG = """\
+commit c272e1c23d120e124adb247be3d271a9d18079d3
+Date: Thu Jan  1 01:00:00 1970
+
+    Initial
+
+  added:         -           a  (-_*).txt
+  added:         -           b  (-_*).txt
+  added:         -           c  (-_*).txt
+  added:         -           x/y/d  (-_*).txt
+  added:         -           x/y/e  (-_*).txt
+  added:         -           x/y/f  (-_*).txt
+
+
+"""
+
 runner = CliRunner()
 
 def run(args, *, expected_exit_code=0):
