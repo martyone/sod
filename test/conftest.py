@@ -6,13 +6,9 @@ from . import utils
 
 @pytest.fixture(scope='class')
 def uninitialized_repo(tmp_path_factory):
-    old_cwd = os.getcwd()
     tmp_path = tmp_path_factory.mktemp('repo')
-    os.chdir(tmp_path)
-    try:
+    with utils.temporary_chdir(tmp_path):
         yield tmp_path
-    finally:
-        os.chdir(old_cwd)
 
 @pytest.fixture(scope='class')
 def empty_repo(uninitialized_repo):

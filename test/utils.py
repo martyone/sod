@@ -50,3 +50,12 @@ def commit_date(year, month, day, hour=0, minute=0, second=0):
         yield
     finally:
         del os.environ['SOD_COMMIT_DATE']
+
+@contextlib.contextmanager
+def temporary_chdir(path):
+    old_cwd = os.getcwd()
+    os.chdir(path)
+    try:
+        yield path
+    finally:
+        os.chdir(old_cwd)
