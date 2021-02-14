@@ -41,9 +41,12 @@ def find_upward(path, name, test=os.path.exists):
 def format_path_change(old_path, new_path):
     common_prefix = os.path.commonpath([old_path, new_path])
     if common_prefix:
-        common_prefix += os.path.sep
-    old_unique = old_path[len(common_prefix):]
-    new_unique = new_path[len(common_prefix):]
+        old_unique = old_path[len(common_prefix) + 1:]
+        new_unique = new_path[len(common_prefix) + 1:]
+    else:
+        old_unique = old_path
+        new_unique = new_path
+
     common_suffix = ''
     while True:
         old_unique_h, old_unique_t = os.path.split(old_unique)
@@ -53,6 +56,20 @@ def format_path_change(old_path, new_path):
         common_suffix = os.path.join(old_unique_t, common_suffix)
         old_unique = old_unique_h
         new_unique = new_unique_h
+
+    if not old_unique or not new_unique:
+        if common_prefix:
+            common_prefix_h, common_prefix_t = os.path.split(common_prefix)
+            old_unique = os.path.normpath(os.path.join(common_prefix_t, old_unique))
+            new_unique = os.path.normpath(os.path.join(common_prefix_t, new_unique))
+            common_prefix = common_prefix_h
+        elif common_suffix:
+            common_suffix_lead, common_suffix_rest = common_suffix.split(os.sep, maxsplit=1)
+            old_unique = os.path.join(old_unique, common_suffix_lead)
+            new_unique = os.path.join(new_unique, common_suffix_lead)
+            common_suffix = common_suffix_rest
+        else:
+            assert False
 
     if common_prefix or common_suffix:
         retv = os.path.join(common_prefix,

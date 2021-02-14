@@ -85,7 +85,6 @@ def test_rename_level_2_dir_status(one_commit_repo):
 
     """)
 
-@pytest.mark.xfail
 def test_move_level_2_dir_up_status(one_commit_repo):
     os.rename('x/y', 'y')
 
@@ -100,7 +99,6 @@ def test_move_level_2_dir_up_status(one_commit_repo):
 
     """)
 
-@pytest.mark.xfail
 def test_move_level_3_file_up_status(one_commit_repo):
     os.rename('x/y/d  (-_*).txt', 'x/d  (-_*).txt')
 
@@ -113,7 +111,6 @@ def test_move_level_3_file_up_status(one_commit_repo):
 
     """)
 
-@pytest.mark.xfail
 def test_move_level_1_file_into_subdir_status(one_commit_repo):
     os.rename('a  (-_*).txt', 'x/a  (-_*).txt')
 
