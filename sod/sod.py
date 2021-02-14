@@ -125,14 +125,14 @@ def init():
 @click.option('--staged', is_flag=True, help='Only check the index')
 @click.option('-r', '--rehash', is_flag=True, help='Do not use cached digests')
 @click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
-@click.argument('path', nargs=-1)
+@click.argument('paths', nargs=-1)
 @pass_repository
-def status(repository, staged, rehash, abbrev, path):
+def status(repository, staged, rehash, abbrev, paths):
     """Summarize changes since last commit."""
-    diff_cached = repository.diff_staged(path)
+    diff_cached = repository.diff_staged(paths)
 
     if not staged:
-        diff_not_staged = repository.diff_not_staged(path, rehash)
+        diff_not_staged = repository.diff_not_staged(paths, rehash)
 
     click.echo('Changes staged for commit:')
     click.echo(''.join(format_diff(repository.git, diff_cached, abbreviate=abbrev)))
@@ -142,18 +142,18 @@ def status(repository, staged, rehash, abbrev, path):
         click.echo(''.join(format_diff(repository.git, diff_not_staged, abbreviate=abbrev)))
 
 @cli.command()
-@click.argument('path', nargs=-1)
+@click.argument('paths', nargs=-1)
 @pass_repository
-def add(repository, path):
+def add(repository, paths):
     """Stage changes for recording with next commit."""
-    repository.add(path)
+    repository.add(paths)
 
 @cli.command()
-@click.argument('path', nargs=-1)
+@click.argument('paths', nargs=-1)
 @pass_repository
-def reset(repository, path):
+def reset(repository, paths):
     """Reset changes staged for recording with next commit."""
-    repository.reset(path)
+    repository.reset(paths)
 
 @cli.command()
 @click.option('-m', '--message', help='Commit message')
