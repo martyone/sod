@@ -155,7 +155,7 @@ def index_add_tree(repo, index, path, tree):
     assert not isabs(path)
 
     for item in tree:
-        item_path = os.path.join(path, item.name)
+        item_path = os.path.normpath(os.path.join(path, item.name))
         if item.filemode != pygit2.GIT_FILEMODE_TREE:
             index.add(pygit2.IndexEntry(item_path, item.id, item.filemode))
         else:

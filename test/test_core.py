@@ -51,7 +51,6 @@ def test_stage_additions(no_commit_repo):
 
     """)
 
-@pytest.mark.xfail
 def test_stage_additions_from_dot(no_commit_repo):
     utils.run(['add', '.'])
 
