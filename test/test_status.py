@@ -25,7 +25,6 @@ def test_constrained_status(no_commit_repo):
 
     """)
 
-@pytest.mark.xfail
 def test_constrained_status_subdir_cwd(no_commit_repo):
     with utils.temporary_chdir('x'):
         utils.run(['add', '../a  (-_*).txt'])

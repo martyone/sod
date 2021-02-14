@@ -1,5 +1,6 @@
 import logging
 import os
+from os.path import isabs
 import pygit2
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,8 @@ def empty_tree(repo):
     return repo.get(empty_tree_oid(repo))
 
 def tree_build(repo, top_dir, *, create_blob, skip_tree_names, skip_tree_flags):
+    assert isabs(top_dir)
+
     trees = {}
 
     EMPTY_TREE_OID = empty_tree_oid(repo)
@@ -108,6 +111,8 @@ def tree_build(repo, top_dir, *, create_blob, skip_tree_names, skip_tree_flags):
     return trees.pop(top_dir)
 
 def tree_filter(repo, tree, paths):
+    assert not all(map(isabs, paths))
+
     index = pygit2.Index()
 
     for path in paths:
@@ -120,7 +125,13 @@ def tree_filter(repo, tree, paths):
 
     return repo.get(index.write_tree(repo))
 
-def index_add(repo, index, path, *, create_blob, skip_tree_names, skip_tree_flags):
+def index_add(repo, index, top_dir, path, *, create_blob, skip_tree_names, skip_tree_flags):
+    assert isabs(top_dir)
+    assert isabs(path)
+    assert os.path.commonpath([top_dir, path]) == top_dir
+
+    relpath = os.path.relpath(path, top_dir)
+
     if os.path.islink(path):
         try:
             target = os.readlink(path)
@@ -128,19 +139,21 @@ def index_add(repo, index, path, *, create_blob, skip_tree_names, skip_tree_flag
             logger.warning('Failed to read symlink: %s: %s', path, e)
             return
         oid = repo.create_blob(target)
-        index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_LINK))
+        index.add(pygit2.IndexEntry(relpath, oid, pygit2.GIT_FILEMODE_LINK))
     elif os.path.isdir(path):
-        index.remove_all([path])
+        index.remove_all([relpath])
         oid = tree_build(repo, path, create_blob=create_blob, skip_tree_names=skip_tree_names,
                 skip_tree_flags=skip_tree_flags)
-        index_add_tree(repo, index, path, repo.get(oid))
+        index_add_tree(repo, index, relpath, repo.get(oid))
     elif os.path.isfile(path):
         oid = create_blob(repo, path)
-        index.add(pygit2.IndexEntry(path, oid, pygit2.GIT_FILEMODE_BLOB))
+        index.add(pygit2.IndexEntry(relpath, oid, pygit2.GIT_FILEMODE_BLOB))
     else:
-        index.remove_all([path])
+        index.remove_all([relpath])
 
 def index_add_tree(repo, index, path, tree):
+    assert not isabs(path)
+
     for item in tree:
         item_path = os.path.join(path, item.name)
         if item.filemode != pygit2.GIT_FILEMODE_TREE:
@@ -149,12 +162,16 @@ def index_add_tree(repo, index, path, tree):
             index_add_tree(repo, index, item_path, repo.get(item.id))
 
 def index_add_object(repo, index, path, obj):
+    assert not isabs(path)
+
     if obj.filemode != pygit2.GIT_FILEMODE_TREE:
         index.add(pygit2.IndexEntry(path, obj.id, obj.filemode))
     else:
         index_add_tree(repo, index, path, obj)
 
 def index_reset_path(repo, index, path, tree):
+    assert not isabs(path)
+
     index.remove_all([path])
 
     try:
@@ -168,6 +185,8 @@ def index_reset_path(repo, index, path, tree):
         index.add(pygit2.IndexEntry(path, obj.oid, obj.filemode))
 
 def find_object(tree, oid, path_hint):
+    assert not isabs(path_hint)
+
     if path_hint:
         try:
             obj = tree[path_hint]

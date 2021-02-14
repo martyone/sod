@@ -64,15 +64,22 @@ def format_path_change(old_path, new_path):
 
     return retv
 
-def format_diff(git_repo, git_diff, abbreviate=True):
+def format_diff(repo, git_diff, abbreviate=True, obey_cwd=True):
     for delta in git_diff.deltas:
-        if delta.old_file.path == delta.new_file.path:
-            path_info = delta.old_file.path
+        if obey_cwd:
+            rel_old_path = os.path.relpath(os.path.join(repo.path, delta.old_file.path))
+            rel_new_path = os.path.relpath(os.path.join(repo.path, delta.new_file.path))
         else:
-            path_info = format_path_change(delta.old_file.path, delta.new_file.path)
+            rel_old_path = delta.old_file.path
+            rel_new_path = delta.new_file.path
+
+        if delta.old_file.path == delta.new_file.path:
+            path_info = rel_old_path
+        else:
+            path_info = format_path_change(rel_old_path, rel_new_path)
 
         if delta.similarity != 100 and delta.status != pygit2.GIT_DELTA_ADDED:
-            old_blob = git_repo.get(delta.old_file.id)
+            old_blob = repo.git.get(delta.old_file.id)
             old_digest = old_blob.data.decode().strip()
         else:
             old_digest = '-'
@@ -129,31 +136,35 @@ def init():
 @pass_repository
 def status(repository, staged, rehash, abbrev, paths):
     """Summarize changes since last commit."""
-    diff_cached = repository.diff_staged(paths)
+    abspaths = tuple(map(os.path.abspath, paths))
+
+    diff_cached = repository.diff_staged(abspaths)
 
     if not staged:
-        diff_not_staged = repository.diff_not_staged(paths, rehash)
+        diff_not_staged = repository.diff_not_staged(abspaths, rehash)
 
     click.echo('Changes staged for commit:')
-    click.echo(''.join(format_diff(repository.git, diff_cached, abbreviate=abbrev)))
+    click.echo(''.join(format_diff(repository, diff_cached, abbreviate=abbrev)))
 
     if not staged:
         click.echo('Changes not staged for commit:')
-        click.echo(''.join(format_diff(repository.git, diff_not_staged, abbreviate=abbrev)))
+        click.echo(''.join(format_diff(repository, diff_not_staged, abbreviate=abbrev)))
 
 @cli.command()
 @click.argument('paths', nargs=-1)
 @pass_repository
 def add(repository, paths):
     """Stage changes for recording with next commit."""
-    repository.add(paths)
+    abspaths = tuple(map(os.path.abspath, paths))
+    repository.add(abspaths)
 
 @cli.command()
 @click.argument('paths', nargs=-1)
 @pass_repository
 def reset(repository, paths):
     """Reset changes staged for recording with next commit."""
-    repository.reset(paths)
+    abspaths = tuple(map(os.path.abspath, paths))
+    repository.reset(abspaths)
 
 @cli.command()
 @click.option('-m', '--message', help='Commit message')
@@ -187,7 +198,7 @@ def log(repository, abbrev):
         yield '\n'
         yield '    {}\n'.format(commit.message)
         yield '\n'
-        yield from format_diff(repository.git, diff, abbreviate=abbrev)
+        yield from format_diff(repository, diff, abbreviate=abbrev, obey_cwd=False)
         yield '\n'
 
     def format_log(log):
@@ -250,4 +261,5 @@ def update(repository, update_all, name):
 @pass_repository
 def restore(repository, path, ref_ish, aux_store):
     """Restore data from an auxiliary data store."""
-    repository.restore(path, ref_ish, aux_store)
+    abspath = os.path.abspath(path)
+    repository.restore(abspath, ref_ish, aux_store)

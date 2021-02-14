@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from datetime import datetime
+from functools import partial
 import logging
 import os
+from os.path import isabs
 import pygit2
 import re
 
@@ -37,12 +39,15 @@ DIFF_FIND_SIMILAR_FLAGS = 0
 
 class Repository:
     def __init__(self, path):
+        assert isabs(path)
         self.path = path
         self.git = pygit2.Repository(os.path.join(self.path, SOD_DIR))
         self.aux_stores = AuxStores(self)
 
     @staticmethod
     def initialize(path):
+        assert isabs(path)
+
         if not os.path.isdir(path):
             raise Error('Not a directory: ' + path)
 
@@ -57,6 +62,7 @@ class Repository:
 
     def _make_create_blob(self, rehash=False):
         def create_blob(git, path):
+            assert isabs(path)
             digest = hashing.digest_for(path, rehash)
             oid = git.create_blob((digest + '\n').encode())
             return oid
@@ -67,10 +73,14 @@ class Repository:
                 skip_tree_names=SKIP_TREE_NAMES, skip_tree_flags=SKIP_TREE_FLAGS)
 
     def _index_add(self, index, path, rehash=False):
-        return gittools.index_add(self.git, index, path, create_blob=self._make_create_blob(rehash),
+        assert isabs(path)
+        return gittools.index_add(self.git, index, self.path, path,
+                create_blob=self._make_create_blob(rehash),
                 skip_tree_names=SKIP_TREE_NAMES, skip_tree_flags=SKIP_TREE_FLAGS)
 
     def add(self, paths=[]):
+        assert all(map(isabs, paths))
+
         if not paths:
             tmp_tree_oid = self._tree_build(self.path)
             self.git.index.read_tree(tmp_tree_oid)
@@ -81,6 +91,8 @@ class Repository:
         self.git.index.write()
 
     def reset(self, paths=[]):
+        assert all(map(isabs, paths))
+
         try:
             head = self.git.get(self.git.head.target)
         except pygit2.GitError:
@@ -95,11 +107,14 @@ class Repository:
             self.git.index.read_tree(head_tree)
         else:
             for path in paths:
-                gittools.index_reset_path(self.git, self.git.index, path, head_tree)
+                relpath = os.path.relpath(path, self.path)
+                gittools.index_reset_path(self.git, self.git.index, relpath, head_tree)
 
         self.git.index.write()
 
     def diff_staged(self, paths=[]):
+        assert all(map(isabs, paths))
+
         try:
             head = self.git.get(self.git.head.target)
         except pygit2.GitError:
@@ -119,8 +134,10 @@ class Repository:
 
             new_tree = self.git.get(self.git.index.write_tree())
 
-            old_tree = gittools.tree_filter(self.git, old_tree, paths)
-            new_tree = gittools.tree_filter(self.git, new_tree, paths)
+            relpaths = tuple(map(partial(os.path.relpath, start=self.path), paths))
+
+            old_tree = gittools.tree_filter(self.git, old_tree, relpaths)
+            new_tree = gittools.tree_filter(self.git, new_tree, relpaths)
 
             diff = old_tree.diff_to_tree(new_tree, flags=DIFF_FLAGS)
             diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
@@ -128,14 +145,18 @@ class Repository:
         return diff
 
     def diff_not_staged(self, paths=[], rehash=False):
+        assert all(map(isabs, paths))
+
         if not paths:
             tmp_tree_oid = self._tree_build(self.path, rehash)
             tmp_tree = self.git.get(tmp_tree_oid)
             diff = self.git.index.diff_to_tree(tmp_tree, flags=DIFF_FLAGS|pygit2.GIT_DIFF_REVERSE)
             diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
         else:
+            relpaths = tuple(map(partial(os.path.relpath, start=self.path), paths))
+
             old_tree = self.git.get(self.git.index.write_tree())
-            old_tree = gittools.tree_filter(self.git, old_tree, paths)
+            old_tree = gittools.tree_filter(self.git, old_tree, relpaths)
 
             new_index = pygit2.Index()
             for path in paths:
@@ -216,6 +237,8 @@ class Repository:
         return (int(result.group(1)), int(result.group(2)) * 60 + int(result.group(3)))
 
     def restore(self, path, refish, aux_store_name):
+        assert isabs(path)
+
         try:
             head = self.git.get(self.git.head.target)
         except pygit2.GitError:
@@ -240,8 +263,10 @@ class Repository:
         else:
             commit = head
 
+        relpath = os.path.relpath(path, self.path)
+
         try:
-            obj = commit.tree[path]
+            obj = commit.tree[relpath]
         except KeyError:
             raise Error('No such file known to sod. Try different revision?')
 
@@ -265,7 +290,7 @@ class Repository:
             if ancestor.id not in snapshots_by_base_commit_id:
                 continue
 
-            ancestor_path = gittools.find_object(ancestor.tree, obj.id, path_hint=path)
+            ancestor_path = gittools.find_object(ancestor.tree, obj.id, path_hint=relpath)
             if ancestor_path:
                 for snapshot in snapshots_by_base_commit_id[ancestor.id]:
                     matching_snapshots.append((snapshot, ancestor_path))

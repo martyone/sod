@@ -7,7 +7,6 @@ import textwrap
 from . import utils
 from .utils import STATUS_STAGED_HEADING, STATUS_UNSTAGED_HEADING, INITIAL_COMMIT_LOG
 
-@pytest.mark.xfail
 def test_unstaged_additions_status(no_commit_repo):
     with utils.temporary_chdir('x'):
         result = utils.run(['status'])
@@ -24,7 +23,6 @@ def test_unstaged_additions_status(no_commit_repo):
 
         """)
 
-@pytest.mark.xfail
 def test_stage_additions(no_commit_repo):
     with utils.temporary_chdir('x'):
         utils.run(['add', '../a  (-_*).txt'])
@@ -45,7 +43,6 @@ def test_stage_additions(no_commit_repo):
 
         """)
 
-@pytest.mark.xfail
 def test_stage_additions_from_dot(no_commit_repo):
     with utils.temporary_chdir('x'):
         utils.run(['add', '.'])
@@ -64,7 +61,6 @@ def test_stage_additions_from_dot(no_commit_repo):
 
         """)
 
-@pytest.mark.xfail
 def test_stage_additions_by_dir(no_commit_repo):
     with utils.temporary_chdir('x'):
         utils.run(['add', 'y'])
@@ -93,7 +89,6 @@ class TestCommitAdditions:
             with utils.commit_date(1970, 1, 1):
                 utils.run(['commit', '-m', 'Initial'])
 
-    @pytest.mark.xfail
     def test_status(self):
         with utils.temporary_chdir('x'):
             result = utils.run(['status'])
@@ -107,7 +102,6 @@ class TestCommitAdditions:
 
             """)
 
-    @pytest.mark.xfail
     def test_log(self):
         with utils.temporary_chdir('x'):
             result = utils.run(['log'])

@@ -1,5 +1,6 @@
 import glob
 import logging
+from os.path import isabs
 import shlex
 import shutil
 import subprocess
@@ -45,6 +46,9 @@ class PlainAuxStore(AuxStore):
         return url
 
     def restore(self, path, destination_path, snapshot):
+        assert not isabs(path)
+        assert isabs(destination_path)
+
         url = self._snapshot_url(snapshot)
         url += '/' + path
         self._download(url, destination_path)
