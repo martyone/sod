@@ -182,7 +182,7 @@ class Repository:
 
         for store in self.aux_stores:
             for snapshot in store.snapshots:
-                snapshots[snapshot.reference].append(snapshot)
+                snapshots[snapshot.reference] = snapshot
 
         return snapshots
 
@@ -248,13 +248,13 @@ class Repository:
             raise Error('File exists - refusing to overwrite: ' + path)
 
         if refish:
-            snapshots = self._snapshots_by_shorthand_reference()
+            snapshots = self._snapshots_by_reference()
             try:
                 snapshot = snapshots[refish]
             except KeyError:
                 pass
             else:
-                refish = snapshot.reference
+                refish = snapshot.base_commit_id
 
             try:
                 commit = self.git.resolve_refish(refish)[0]

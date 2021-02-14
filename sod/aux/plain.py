@@ -62,7 +62,9 @@ class PlainAuxStore(AuxStore):
             except Exception as e:
                 raise Error('Failed to copy file: ' + str(e))
         elif scheme == 'ssh':
-            result = subprocess.run(['scp', netloc + ':' + path, destination_path])
+            quoted_path = shlex.quote(path)
+            # TODO Avoid using '-T'?
+            result = subprocess.run(['scp', '-T', netloc + ':' + quoted_path, destination_path])
             if result.returncode != 0:
                 raise Error('Download failed')
         else:
