@@ -101,16 +101,16 @@ def format_path_change(old_path, new_path):
 def format_diff(repo, git_diff, abbreviate=True, obey_cwd=True):
     for delta in git_diff.deltas:
         if obey_cwd:
-            rel_old_path = os.path.relpath(os.path.join(repo.path, delta.old_file.path))
-            rel_new_path = os.path.relpath(os.path.join(repo.path, delta.new_file.path))
+            old_path = os.path.relpath(os.path.join(repo.path, delta.old_file.path))
+            new_path = os.path.relpath(os.path.join(repo.path, delta.new_file.path))
         else:
-            rel_old_path = delta.old_file.path
-            rel_new_path = delta.new_file.path
+            old_path = delta.old_file.path
+            new_path = delta.new_file.path
 
         if delta.old_file.path == delta.new_file.path:
-            path_info = rel_old_path
+            path_info = old_path
         else:
-            path_info = format_path_change(rel_old_path, rel_new_path)
+            path_info = format_path_change(old_path, new_path)
 
         if delta.similarity != 100 and delta.status != pygit2.GIT_DELTA_ADDED:
             old_blob = repo.git.get(delta.old_file.id)
