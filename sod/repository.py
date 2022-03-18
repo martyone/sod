@@ -271,7 +271,7 @@ class Repository:
             except KeyError:
                 pass
             else:
-                refish = snapshot.base_commit_id
+                refish = str(snapshot.base_commit_id)
 
             try:
                 commit = self.git.resolve_refish(refish)[0]

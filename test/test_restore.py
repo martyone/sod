@@ -157,6 +157,11 @@ def test_restore_older(three_commit_repo_with_aux_stores):
     utils.run(['restore', 'a  (-_*).txt', '93cd0dfbd5'])
     assert utils.read('a  (-_*).txt') == 'a changed content'
 
+def test_restore_older_by_ref_name(three_commit_repo_with_aux_stores):
+    os.remove('a  (-_*).txt')
+    utils.run(['restore', 'a  (-_*).txt', 'aux1/2'])
+    assert utils.read('a  (-_*).txt') == 'a changed content'
+
 def test_restore_older_from(three_commit_repo_with_aux_stores):
     os.remove('a  (-_*).txt')
     utils.run(['restore', 'a  (-_*).txt', '93cd0dfbd5', '--from', 'aux1'])
