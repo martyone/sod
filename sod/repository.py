@@ -95,6 +95,21 @@ class Repository:
                 create_blob=self._make_create_blob(rehash),
                 skip_tree_names=SKIP_TREE_NAMES, skip_tree_flags=SKIP_TREE_FLAGS)
 
+    def _resolve_refish(self, refish):
+        snapshots = self._snapshots_by_reference()
+
+        try:
+            snapshot = snapshots[refish]
+        except KeyError:
+            pass
+        else:
+            refish = str(snapshot.base_commit_id)
+
+        try:
+            return self.git.resolve_refish(refish)[0]
+        except pygit2.GitError:
+            raise Error('Bad revision: ' + refish)
+
     def add(self, paths=[]):
         assert all(map(isabs, paths))
 
@@ -265,18 +280,7 @@ class Repository:
             raise Error('File exists - refusing to overwrite: ' + path)
 
         if refish:
-            snapshots = self._snapshots_by_reference()
-            try:
-                snapshot = snapshots[refish]
-            except KeyError:
-                pass
-            else:
-                refish = str(snapshot.base_commit_id)
-
-            try:
-                commit = self.git.resolve_refish(refish)[0]
-            except pygit2.GitError:
-                raise Error('Bad revision: ' + refish)
+            commit = self._resolve_refish(refish)
         else:
             commit = head
 
