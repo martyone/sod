@@ -144,6 +144,23 @@ class Repository:
 
         self.git.index.write()
 
+    def diff(self, old_refish, new_refish):
+        try:
+            head = self.git.get(self.git.head.target)
+        except pygit2.GitError:
+            raise Error('No commit found')
+
+        old_commit = self._resolve_refish(old_refish)
+        if new_refish:
+            new_commit = self._resolve_refish(new_refish)
+        else:
+            new_commit = head
+
+        diff = old_commit.tree.diff_to_tree(new_commit.tree, flags=DIFF_FLAGS)
+        diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
+
+        return diff
+
     def diff_staged(self, paths=[]):
         assert all(map(isabs, paths))
 

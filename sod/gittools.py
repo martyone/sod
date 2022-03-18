@@ -37,6 +37,20 @@ DELTA_STATUS_NAME = {
 }
 DELTA_STATUS_MAX_LENGTH = max([len(name) for name in DELTA_STATUS_NAME.values()])
 
+DELTA_STATUS_CODE = {
+    pygit2.GIT_DELTA_UNMODIFIED: '-',
+    pygit2.GIT_DELTA_ADDED: 'A',
+    pygit2.GIT_DELTA_DELETED: 'D',
+    pygit2.GIT_DELTA_MODIFIED: 'M',
+    pygit2.GIT_DELTA_RENAMED: 'R',
+    pygit2.GIT_DELTA_COPIED: 'C',
+    pygit2.GIT_DELTA_IGNORED: 'X',
+    pygit2.GIT_DELTA_UNTRACKED: 'X',
+    pygit2.GIT_DELTA_TYPECHANGE: 'T',
+    pygit2.GIT_DELTA_UNREADABLE: 'X',
+    pygit2.GIT_DELTA_CONFLICTED: 'X',
+}
+
 def _walk_bottom_up(top, skip_tree_names, skip_tree_flags):
     dirs = []
     files = []

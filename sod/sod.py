@@ -98,8 +98,23 @@ def format_path_change(old_path, new_path):
 
     return retv
 
-def format_diff(repo, git_diff, abbreviate=True, obey_cwd=True):
+def diff_filter_is_valid(filter):
+    return filter and (filter.upper() == filter or filter.lower() == filter)
+
+def diff_filter_matches(filter, delta_status):
+    assert diff_filter_is_valid(filter)
+
+    status_code = gittools.DELTA_STATUS_CODE[delta_status]
+    if filter[0].isupper():
+        return status_code in filter
+    else:
+        return status_code.lower() not in filter
+
+def format_diff(repo, git_diff, abbreviate=True, obey_cwd=True, filter=None):
     for delta in git_diff.deltas:
+        if filter and not diff_filter_matches(filter, delta.status):
+            continue
+
         if obey_cwd:
             old_path = os.path.relpath(os.path.join(repo.path, delta.old_file.path))
             new_path = os.path.relpath(os.path.join(repo.path, delta.new_file.path))
@@ -126,6 +141,42 @@ def format_diff(repo, git_diff, abbreviate=True, obey_cwd=True):
             old_digest=old_digest[0:digest_size],
             digest_w=digest_size,
             path_info=path_info)
+
+def format_raw_diff(repo, git_diff, null_terminated=False, filter=None):
+    if null_terminated:
+        path_separator = '\0'
+        record_separator = '\0'
+    else:
+        path_separator = '\t'
+        record_separator = '\n'
+
+    for delta in git_diff.deltas:
+        if filter and not diff_filter_matches(filter, delta.status):
+            continue
+
+        old_path = delta.old_file.path
+        new_path = delta.new_file.path
+
+        if delta.old_file.path == delta.new_file.path:
+            path_info = old_path
+        else:
+            path_info = old_path + path_separator + new_path
+
+        if delta.similarity != 100 and delta.status != pygit2.GIT_DELTA_ADDED:
+            old_blob = repo.git.get(delta.old_file.id)
+            old_digest = old_blob.data.decode().strip()
+        else:
+            old_digest = '-'
+
+        digest_size = hashing.digest_size()
+
+        yield '{status} {old_digest:{digest_w}}{path_sep}{path_info}{record_sep}'.format(
+            status=gittools.DELTA_STATUS_CODE[delta.status],
+            old_digest=old_digest[0:digest_size],
+            digest_w=digest_size,
+            path_sep=path_separator,
+            path_info=path_info,
+            record_sep=record_separator)
 
 class ErrorHandlingGroup(click.Group):
     def __call__(self, *args, **kwargs):
@@ -324,6 +375,47 @@ def log(repository, abbrev):
             yield from format_commit(commit, snapshots, diff)
 
     click.echo_via_pager(format_log(repository.log(head)))
+
+@cli.command()
+@click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
+@click.option('--raw', is_flag=True, help='''Output in a format suitable for parsing.
+    Implies '--no-abbrev'.''')
+@click.option('--null-terminated', is_flag=True, help='''Use NULs as output fields terminators.
+    Implies '--raw'.''')
+@click.option('--filter', help='''Limit output to files that were Added (A),
+    Copied (C), Deleted (D), Modified (M) or Renamed (R). Multiple filter
+    characters may be passed.  Pass lower-case characters to select the
+    complement.''')
+@click.argument('old-commit')
+@click.argument('new-commit', default='HEAD')
+@pass_repository
+def diff(repository, abbrev, raw, null_terminated, filter, old_commit, new_commit):
+    """Show differences between two commits. New commit defaults to 'HEAD'.
+
+    When '--raw' is used, the output format is:
+
+    STATUS_LETTER ' ' OLD_DIGEST '<TAB>' OLD_PATH ['<TAB>' NEW_PATH] '<LF>'
+
+    When '--raw' and '--null-terminated' is used, the output format is:
+
+    STATUS_LETTER ' ' OLD_DIGEST '<NUL>' OLD_PATH ['<NUL>' NEW_PATH] '<NUL>'
+
+    Possible STATUS_LETTER is any of the letters the '--filter' option accepts.
+    """
+    if filter and not diff_filter_is_valid(filter):
+        raise Error('Not a valid filter string: ' + filter)
+
+    diff = repository.diff(old_commit, new_commit)
+
+    if null_terminated:
+        raw = True
+
+    if raw:
+        print(*format_raw_diff(repository, diff,
+            null_terminated=null_terminated, filter=filter), sep='', end='')
+    else:
+        click.echo_via_pager(format_diff(repository, diff, abbreviate=abbrev,
+            obey_cwd=False, filter=filter))
 
 @cli.group()
 def aux():
