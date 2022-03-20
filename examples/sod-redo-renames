@@ -81,7 +81,7 @@ do_rename()
 	mv --verbose "$src" "$dst" || return
 
 	if [[ ! $OPT_KEEP_EMPTY_DIRS ]]; then
-		rmdir --ignore-fail-on-non-empty --verbose --parents "$src_dir"
+		rmdir --ignore-fail-on-non-empty --parents "$src_dir"
 	fi
 
 	ok=1
