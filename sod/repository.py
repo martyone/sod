@@ -54,6 +54,8 @@ DIFF_FIND_SIMILAR_FLAGS = (
 DIFF_FLAGS = 0
 DIFF_FIND_SIMILAR_FLAGS = 0
 
+DIFF_RENAME_LIMIT = 10000
+
 class Repository:
     def __init__(self, path):
         assert isabs(path)
@@ -157,7 +159,7 @@ class Repository:
             new_commit = head
 
         diff = old_commit.tree.diff_to_tree(new_commit.tree, flags=DIFF_FLAGS)
-        diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
+        diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS, rename_limit=DIFF_RENAME_LIMIT)
 
         return diff
 
@@ -172,7 +174,7 @@ class Repository:
         if not paths:
             if head:
                 diff = self.git.index.diff_to_tree(head.tree, flags=DIFF_FLAGS)
-                diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
+                diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS, rename_limit=DIFF_RENAME_LIMIT)
             else:
                 diff = self.git.index.diff_to_tree(gittools.empty_tree(self.git))
         else:
@@ -189,7 +191,7 @@ class Repository:
             new_tree = gittools.tree_filter(self.git, new_tree, relpaths)
 
             diff = old_tree.diff_to_tree(new_tree, flags=DIFF_FLAGS)
-            diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
+            diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS, rename_limit=DIFF_RENAME_LIMIT)
 
         return diff
 
@@ -200,7 +202,7 @@ class Repository:
             tmp_tree_oid = self._tree_build(self.path, rehash)
             tmp_tree = self.git.get(tmp_tree_oid)
             diff = self.git.index.diff_to_tree(tmp_tree, flags=DIFF_FLAGS|pygit2.GIT_DIFF_REVERSE)
-            diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
+            diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS, rename_limit=DIFF_RENAME_LIMIT)
         else:
             relpaths = tuple(map(partial(os.path.relpath, start=self.path), paths))
 
@@ -213,7 +215,7 @@ class Repository:
             new_tree = self.git.get(new_index.write_tree(self.git))
 
             diff = old_tree.diff_to_tree(new_tree, flags=DIFF_FLAGS)
-            diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
+            diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS, rename_limit=DIFF_RENAME_LIMIT)
 
         return diff
 
@@ -241,7 +243,7 @@ class Repository:
         for commit in self.git.walk(oid):
             if commit.parents:
                 diff = commit.tree.diff_to_tree(commit.parents[0].tree, swap=True, flags=DIFF_FLAGS)
-                diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS)
+                diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS, rename_limit=DIFF_RENAME_LIMIT)
             else:
                 diff = commit.tree.diff_to_tree(swap=True)
 

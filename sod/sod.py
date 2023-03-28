@@ -301,11 +301,14 @@ def init():
 @click.option('--staged', is_flag=True, help='Only check the index')
 @click.option('-r', '--rehash', is_flag=True, help='Do not use cached digests')
 @click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
+@click.option('--rename-limit', default=repository.DIFF_RENAME_LIMIT,
+        help='Maximum number of file renames to try to detect')
 @click.argument('paths', nargs=-1)
 @pass_repository
-def status(repository, staged, rehash, abbrev, paths):
+def status(repository, staged, rehash, abbrev, rename_limit, paths):
     """Summarize changes since last commit."""
     abspaths = tuple(map(os.path.abspath, paths))
+    repository.DIFF_RENAME_LIMIT = rename_limit
 
     diff_cached = repository.diff_staged(abspaths)
 
@@ -344,9 +347,13 @@ def commit(repository, message):
 
 @cli.command()
 @click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
+@click.option('--rename-limit', default=repository.DIFF_RENAME_LIMIT,
+        help='Maximum number of file renames to try to detect')
 @pass_repository
-def log(repository, abbrev):
+def log(repository, abbrev, rename_limit):
     """Show commit log."""
+    repository.DIFF_RENAME_LIMIT = rename_limit
+
     try:
         head = repository.git.head.target
     except pygit2.GitError:
@@ -386,10 +393,12 @@ def log(repository, abbrev):
     Copied (C), Deleted (D), Modified (M) or Renamed (R). Multiple filter
     characters may be passed.  Pass lower-case characters to select the
     complement.''')
+@click.option('--rename-limit', default=repository.DIFF_RENAME_LIMIT,
+        help='Maximum number of file renames to try to detect')
 @click.argument('old-commit')
 @click.argument('new-commit', default='HEAD')
 @pass_repository
-def diff(repository, abbrev, raw, null_terminated, filter, old_commit, new_commit):
+def diff(repository, abbrev, raw, null_terminated, filter, rename_limit, old_commit, new_commit):
     """Show differences between two commits. New commit defaults to 'HEAD'.
 
     When '--raw' is used, the output format is:
@@ -404,6 +413,8 @@ def diff(repository, abbrev, raw, null_terminated, filter, old_commit, new_commi
     """
     if filter and not diff_filter_is_valid(filter):
         raise Error('Not a valid filter string: ' + filter)
+
+    repository.DIFF_RENAME_LIMIT = rename_limit
 
     diff = repository.diff(old_commit, new_commit)
 
