@@ -106,7 +106,8 @@ END
 
 	sod diff --raw --null-terminated --filter=R "${OPT_RANGE[@]}" \
 		|xargs -0 -n 3 --no-run-if-empty \
-			bash -c 'printf "do_rename %q %q\n" "$2" "$3"' -
+			bash -c 'printf "do_rename %q %q\n" "$2" "$3"' - \
+		|| return
 
 	cat <<'END'
 
