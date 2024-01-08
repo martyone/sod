@@ -1,6 +1,6 @@
 # This file is part of sod.
 #
-# Copyright (C) 2020,2021 Martin Kampas <martin.kampas@ubedi.net>
+# Copyright (C) 2020,2021,2024 Martin Kampas <martin.kampas@ubedi.net>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,20 +15,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from setuptools import setup, find_packages
+[build-system]
+requires = ["setuptools"]
+#requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
 
-setup(
-    name='sod',
-    version='0.1',
-    packages=find_packages(),
-    include_package_data=True,
-    install_requires=[
-        'click',
-        'pygit2',
-        'pytest',
-    ],
-    entry_points='''
-        [console_scripts]
-        sod=sod.sod:cli
-    ''',
-)
+[project]
+name = "sod"
+version = "0.1"
+#dynamic = ["version"]
+dependencies = [
+	"click",
+	"pygit2",
+	"pytest",
+]
+
+[project.scripts]
+sod = "sod.sod:cli"
