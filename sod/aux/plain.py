@@ -79,7 +79,7 @@ class PlainAuxStore(AuxStore):
             except Exception as e:
                 raise Error('Failed to copy file: ' + str(e))
         elif scheme == 'ssh':
-            quoted_path = shlex.quote(path)
+            quoted_path = glob.escape(path)
             # TODO Avoid using '-T'?
             result = subprocess.run(['scp', '-T', netloc + ':' + quoted_path, destination_path])
             if result.returncode != 0:
