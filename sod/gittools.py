@@ -219,11 +219,12 @@ def find_object(tree, oid, path_hint):
     assert not isabs(path_hint)
 
     if path_hint:
+        obj = None
         try:
             obj = tree[path_hint]
         except KeyError:
             pass
-        if obj.id == oid:
+        if obj and obj.id == oid:
             return path_hint
 
     for obj in tree:
