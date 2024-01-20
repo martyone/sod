@@ -31,17 +31,32 @@ from .aux.plain import PlainAuxStore
 logger = logging.getLogger(__name__)
 
 def init_logging(debug=False):
-    formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(name)s] %(message)s',
-                                  datefmt='%H:%M:%S')
-    handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
-    root_logger = logging.getLogger()
+    class BriefFormatter(logging.Formatter):
+        def __init__(self, fmt):
+            super().__init__(fmt)
+
+        def format(self, record):
+            if record.levelno == logging.INFO:
+                return record.getMessage()
+            return super().format(record)
+
+    for name, level in logging.getLevelNamesMapping().items():
+        logging.addLevelName(level, name.capitalize())
+
     if debug:
-        handler.setLevel(logging.DEBUG)
-        root_logger.setLevel(logging.DEBUG)
+        level = logging.DEBUG
+        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(name)s] %(message)s',
+                                      datefmt='%H:%M:%S')
     else:
-        handler.setLevel(logging.INFO)
-        root_logger.setLevel(logging.INFO)
+        level = logging.INFO
+        formatter = BriefFormatter('%(message)s')
+
+    handler = logging.StreamHandler()
+    handler.setLevel(level)
+    handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
     root_logger.addHandler(handler)
 
 def find_upward(path, name, test=os.path.exists):
