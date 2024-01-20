@@ -51,9 +51,9 @@ class PlainAuxStore(AuxStore):
                     'HEAD:' + SNAPSHOT_REF_PREFIX + snapshot.reference)
             logger.info('Updating %s', snapshot.reference)
             result = subprocess.run(['git', '--git-dir', self._repository.git.path, 'fetch',
-                remote_name], capture_output=True)
+                remote_name], capture_output=True, text=True)
             if result.returncode != 0:
-                raise Error('Failed to update ' + snapshot.reference + ': ' + result.stderr.decode())
+                raise Error('Failed to update ' + snapshot.reference + ': ' + result.stderr)
 
     def _snapshot_url(self, snapshot):
         url = self._url
