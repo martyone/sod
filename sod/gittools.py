@@ -236,3 +236,13 @@ def find_object(tree, oid, path_hint):
             return obj.name
 
     return None
+
+def delta_adds_new_content(delta):
+    return (delta.status == pygit2.GIT_DELTA_ADDED
+            or delta.status == pygit2.GIT_DELTA_MODIFIED
+            or ((delta.status == pygit2.GIT_DELTA_RENAMED
+                 or delta.status == pygit2.GIT_DELTA_COPIED)
+                and delta.similarity != 100))
+
+def diff_adds_new_content(diff):
+    return any(map(delta_adds_new_content, diff.deltas))

@@ -24,6 +24,7 @@ import os
 from os.path import isabs
 import pygit2
 import re
+import subprocess
 
 from . import Error
 from . import gittools
@@ -39,6 +40,12 @@ COMMIT_DATE_ENV_VAR = 'SOD_COMMIT_DATE'
 FAKE_SIGNATURE_NAME = 'sod'
 FAKE_SIGNATURE_EMAIL = 'sod@localhost'
 SNAPSHOT_REF_PREFIX = 'refs/snapshots/'
+
+CONFIG_PREFIX = 'sod-config.'
+CONFIG_OPTION_SNAPSHOT_COMMAND = 'snapshot.command'
+CONFIG_OPTIONS = [
+    CONFIG_OPTION_SNAPSHOT_COMMAND
+    ]
 
 DIFF_FLAGS = pygit2.GIT_DIFF_INCLUDE_UNMODIFIED
 DIFF_FIND_SIMILAR_FLAGS = (
@@ -254,8 +261,9 @@ class Repository:
 
             yield (commit, matching_snapshots, diff)
 
-    def commit(self, message):
-        if not self.diff_staged():
+    def commit(self, message, no_snapshot=False):
+        changes = self.diff_staged()
+        if not changes:
             raise Error('No changes staged for commit')
 
         try:
@@ -279,6 +287,8 @@ class Repository:
 
         self.git.create_commit(ref_name, signature, signature,
                 message, self.git.index.write_tree(), parents)
+
+        self.maybe_create_snapshot(changes)
 
     def _parse_date_time(self, string):
         result = re.match('^([0-9]+) ([-+][0-9][0-9])([0-9][0-9])$', string)
@@ -361,6 +371,44 @@ class Repository:
                 for snapshot in excluded_snapshots:
                     logger.info('  ' + snapshot.reference)
             raise Error('Could not restore')
+
+    def maybe_create_snapshot(self, committed_diff):
+        snapshot_command = self.get_config_value(CONFIG_OPTION_SNAPSHOT_COMMAND)
+        if not snapshot_command:
+            return
+
+        if not gittools.diff_adds_new_content(committed_diff):
+            logger.debug('No new content comitted - skipping snapshot creation')
+            return
+
+        result = subprocess.run(snapshot_command, shell=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.warning('Snapshot creation failed: ' + result.stderr)
+
+    def get_config(self, name=None):
+        if name and not name in CONFIG_OPTIONS:
+            raise Error('No such configuration option')
+        names = [name] if name else CONFIG_OPTIONS
+        for name in names:
+            try:
+                value = self.git.config[CONFIG_PREFIX + name]
+            except KeyError:
+                value = str()
+
+            yield (name, value)
+
+    def get_config_value(self, name):
+        return next(self.get_config(name))[1]
+
+    def set_config(self, name, value):
+        if not name in CONFIG_OPTIONS:
+            raise Error('No such configuration option')
+        self.git.config[CONFIG_PREFIX + name] = value
+
+    def clear_config(self, name):
+        if not name in CONFIG_OPTIONS:
+            raise Error('No such configuration option')
+        del self.git.config[CONFIG_PREFIX + name]
 
 class AuxStores:
     def __init__(self, repository):

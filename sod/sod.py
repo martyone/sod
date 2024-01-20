@@ -297,6 +297,10 @@ def cli(debug):
     latter case accessed via SSH. Use 'sox aux add --help-types' to learn about
     the possible auxiliary data store types.
 
+    The 'snapshot.command' configuration option can be used to let Sod trigger
+    snapshot creation automatically whenever a new content is committed. See
+    the 'sod config' and 'sod commit' commands for more information.
+
     """
 
     if not cli.initialized:
@@ -355,10 +359,18 @@ def reset(repository, paths):
 
 @cli.command()
 @click.option('-m', '--message', help='Commit message')
+@click.option('--no-snapshot', is_flag=True, help='Suppress automatic snapshot creation')
 @pass_repository
-def commit(repository, message):
-    """Record changes to the repository."""
-    repository.commit(message)
+def commit(repository, message, no_snapshot):
+    """Record changes to the repository.
+
+    When the 'snapshot.command' configuration option is set and the changes
+    staged for this commit introduce a new content (new files added or existing
+    modified), the shell command denoted by the 'snapshot.command'
+    configuration option will be executed unless the '--no-snapshot' option is
+    passed.
+    """
+    repository.commit(message, no_snapshot)
 
 @cli.command()
 @click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
@@ -499,3 +511,42 @@ def restore(repository, path, ref_ish, aux_store):
     """Restore data from an auxiliary data store."""
     abspath = os.path.abspath(path)
     repository.restore(abspath, ref_ish, aux_store)
+
+@cli.command()
+@click.argument('assignment', metavar='[NAME[=[VALUE]]]', required=False)
+@pass_repository
+def config(repository, assignment):
+    """Show or set configuration options.
+
+    When invoked without argument, list all options with their values. When
+    invoked with NAME only, show the particular option value.  When just the
+    VALUE is omitted, clear the option value. Otherwise assign the VALUE.
+
+    The list of configuration options follows:
+
+    snapshot.command STRING
+
+        Use the command STRING as a system command to automatically create a
+        file system snapshot whenever a new content is comitted (new files
+        added or existing modified). The command STRING will be executed as is
+        in a subshell.
+
+    """
+    if assignment == '' or assignment and assignment.startswith('='):
+        click.UsageError('Got empty name')
+
+    name = None
+    op = None
+    value = None
+    if assignment:
+        name, op, value = assignment.partition('=')
+
+    if not name:
+        for pair in repository.get_config():
+            click.echo('='.join(pair))
+    elif not op:
+        click.echo(repository.get_config_value(name))
+    elif not value:
+        repository.clear_config(name)
+    else:
+        repository.set_config(name, value)
