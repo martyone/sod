@@ -288,7 +288,8 @@ class Repository:
         self.git.create_commit(ref_name, signature, signature,
                 message, self.git.index.write_tree(), parents)
 
-        self.maybe_create_snapshot(changes)
+        if not no_snapshot:
+            self.maybe_create_snapshot(changes)
 
     def _parse_date_time(self, string):
         result = re.match('^([0-9]+) ([-+][0-9][0-9])([0-9][0-9])$', string)
