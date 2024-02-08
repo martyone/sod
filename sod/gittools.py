@@ -112,20 +112,23 @@ def tree_build(repo, top_dir, *, create_blob, skip_tree_names, skip_tree_flags):
         item_count = 0
         builder = repo.TreeBuilder()
         for name in dirs:
-            oid = trees.pop(os.path.join(root, name))
+            path = os.path.join(root, name)
+            oid = trees.pop(path)
             if not oid:
                 continue
             builder.insert(name, oid, pygit2.GIT_FILEMODE_TREE)
             item_count += 1
         for name in files:
-            oid = create_blob(repo, os.path.join(root, name))
+            path = os.path.join(root, name)
+            oid = create_blob(repo, path)
             builder.insert(name, oid, pygit2.GIT_FILEMODE_BLOB)
             item_count += 1
         for name in symlinks:
+            path = os.path.join(root, name)
             try:
-                target = os.readlink(os.path.join(root, name))
+                target = os.readlink(path)
             except OSError as e:
-                logger.warning('Failed to read symlink: %s: %s', os.path.join(root, name), e)
+                logger.warning('Failed to read symlink: %s: %s', path, e)
                 continue
             oid = repo.create_blob(target)
             builder.insert(name, oid, pygit2.GIT_FILEMODE_LINK)
