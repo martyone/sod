@@ -126,6 +126,8 @@ class Repository:
             tmp_tree_oid = self._tree_build(self.path)
             self.git.index.read_tree(tmp_tree_oid)
         else:
+            paths = tuple(filter(lambda path: not self._is_ignored(path), paths))
+
             for path in paths:
                 self._index_add(self.git.index, path)
 
@@ -147,6 +149,8 @@ class Repository:
         if not paths:
             self.git.index.read_tree(head_tree)
         else:
+            paths = tuple(filter(lambda path: not self._is_ignored(path), paths))
+
             for path in paths:
                 relpath = os.path.relpath(path, self.path)
                 gittools.index_reset_path(self.git, self.git.index, relpath, head_tree)
@@ -185,6 +189,8 @@ class Repository:
             else:
                 diff = self.git.index.diff_to_tree(gittools.empty_tree(self.git))
         else:
+            paths = tuple(filter(lambda path: not self._is_ignored(path), paths))
+
             if head:
                 old_tree = head.tree
             else:
@@ -211,6 +217,8 @@ class Repository:
             diff = self.git.index.diff_to_tree(tmp_tree, flags=DIFF_FLAGS|pygit2.GIT_DIFF_REVERSE)
             diff.find_similar(flags=DIFF_FIND_SIMILAR_FLAGS, rename_limit=DIFF_RENAME_LIMIT)
         else:
+            paths = tuple(filter(lambda path: not self._is_ignored(path), paths))
+
             relpaths = tuple(map(partial(os.path.relpath, start=self.path), paths))
 
             old_tree = self.git.get(self.git.index.write_tree())
