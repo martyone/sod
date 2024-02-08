@@ -19,6 +19,7 @@ import logging
 import os
 from os.path import isabs
 import pygit2
+import stat
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,10 @@ def tree_build(repo, top_dir, *, create_blob, skip_tree_names, skip_tree_flags):
             item_count += 1
         for name in files:
             path = os.path.join(root, name)
+            mode = os.lstat(path).st_mode
+            if not stat.S_ISREG(mode):
+                logger.debug('Ignoring special file "%s"', path)
+                continue
             oid = create_blob(repo, path)
             builder.insert(name, oid, pygit2.GIT_FILEMODE_BLOB)
             item_count += 1
@@ -166,7 +171,13 @@ def index_add(repo, index, top_dir, path, *, create_blob, skip_tree_names, skip_
 
     relpath = os.path.relpath(path, top_dir)
 
-    if os.path.islink(path):
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        index.remove_all([relpath])
+        return
+
+    if stat.S_ISLNK(mode):
         try:
             target = os.readlink(path)
         except OSError as e:
@@ -174,15 +185,16 @@ def index_add(repo, index, top_dir, path, *, create_blob, skip_tree_names, skip_
             return
         oid = repo.create_blob(target)
         index.add(pygit2.IndexEntry(relpath, oid, pygit2.GIT_FILEMODE_LINK))
-    elif os.path.isdir(path):
+    elif stat.S_ISDIR(mode):
         index.remove_all([relpath])
         oid = tree_build(repo, path, create_blob=create_blob, skip_tree_names=skip_tree_names,
                 skip_tree_flags=skip_tree_flags)
         index_add_tree(repo, index, relpath, repo.get(oid))
-    elif os.path.isfile(path):
+    elif stat.S_ISREG(mode):
         oid = create_blob(repo, path)
         index.add(pygit2.IndexEntry(relpath, oid, pygit2.GIT_FILEMODE_BLOB))
     else:
+        logger.debug('Ignoring special file "%s"', path)
         index.remove_all([relpath])
 
 def index_add_tree(repo, index, path, tree):
