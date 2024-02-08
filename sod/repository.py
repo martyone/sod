@@ -226,6 +226,48 @@ class Repository:
 
         return diff
 
+    def ignored_paths(self, paths=[]):
+        assert all(map(isabs, paths))
+
+        if not paths:
+            return list(self._ignored_paths(self.path))
+        else:
+            all_ignored = set()
+
+            for path in paths:
+                if self._is_ignored(path):
+                    all_ignored.add(os.path.relpath(path, self.path))
+                elif os.path.isdir(path):
+                    all_ignored.update(self._ignored_paths(path))
+
+            return list(all_ignored)
+
+    def _ignored_paths(self, path):
+        assert isabs(path)
+
+        for root, dirs, files in os.walk(path):
+            for ignored in SKIP_TREE_NAMES.intersection(dirs):
+                if ignored == SOD_DIR:
+                    continue
+                yield os.path.relpath(os.path.join(root, ignored), self.path)
+            if SKIP_TREE_FLAGS.intersection(files):
+                dirs.clear()
+                yield os.path.relpath(root, self.path)
+
+    def _is_ignored(self, path):
+        assert isabs(path)
+
+        while path != self.path and os.path.dirname(path) != path:
+            basename = os.path.basename(path)
+            if basename != SOD_DIR and basename in SKIP_TREE_NAMES:
+                return True
+            for flag in SKIP_TREE_FLAGS:
+                if os.path.exists(os.path.join(path, flag)):
+                    return True
+            path = os.path.dirname(path)
+
+        return False
+
     def _snapshots_by_base_commit_id(self):
         snapshots = defaultdict(lambda: [])
 

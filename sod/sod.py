@@ -193,6 +193,15 @@ def format_raw_diff(repo, git_diff, null_terminated=False, filter=None):
             path_info=path_info,
             record_sep=record_separator)
 
+def format_ignored_paths(repo, paths, obey_cwd=True):
+    for path in paths:
+        maybe_trailing_sep = os.sep if os.path.isdir(path) else ''
+
+        if obey_cwd:
+            path = os.path.relpath(os.path.join(repo.path, path))
+
+        yield '  {}{}\n'.format(path, maybe_trailing_sep)
+
 class ErrorHandlingGroup(click.Group):
     def __call__(self, *args, **kwargs):
         try:
@@ -301,6 +310,14 @@ def cli(debug):
     snapshot creation automatically whenever a new content is committed. See
     the 'sod config' and 'sod commit' commands for more information.
 
+
+    IGNORED PATHS
+
+    Sod automatically ignores any directory that looks like a Git repository,
+    SVN repository or snapper's snapshot directory. Additionally, any directory
+    which contains a file named '.sodignore' is ignored. Ignoring individual
+    files is not possible. Use the 'sod status --ignored' command to see the
+    list of ignored files.
     """
 
     if not cli.initialized:
@@ -322,9 +339,10 @@ def init():
 @click.option('--abbrev/--no-abbrev', default=True, help='Abbreviate old content digest')
 @click.option('--rename-limit', default=repository.DIFF_RENAME_LIMIT,
         help='Maximum number of file renames to try to detect')
+@click.option('--ignored', is_flag=True, help='Show ignored files')
 @click.argument('paths', nargs=-1)
 @pass_repository
-def status(repository, staged, rehash, abbrev, rename_limit, paths):
+def status(repository, staged, rehash, abbrev, rename_limit, ignored, paths):
     """Summarize changes since last commit."""
     abspaths = tuple(map(os.path.abspath, paths))
     repository.DIFF_RENAME_LIMIT = rename_limit
@@ -334,12 +352,19 @@ def status(repository, staged, rehash, abbrev, rename_limit, paths):
     if not staged:
         diff_not_staged = repository.diff_not_staged(abspaths, rehash)
 
+    if ignored:
+        ignored_paths = repository.ignored_paths(abspaths)
+
     click.echo('Changes staged for commit:')
     click.echo(''.join(format_diff(repository, diff_cached, abbreviate=abbrev)))
 
     if not staged:
         click.echo('Changes not staged for commit:')
         click.echo(''.join(format_diff(repository, diff_not_staged, abbreviate=abbrev)))
+
+    if ignored:
+        click.echo('Ignored files:')
+        click.echo(''.join(format_ignored_paths(repository, ignored_paths)))
 
 @cli.command()
 @click.argument('paths', nargs=-1)
