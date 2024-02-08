@@ -150,7 +150,7 @@ def tree_build(repo, top_dir, *, create_blob, skip_tree_names, skip_tree_flags):
     return trees.pop(top_dir)
 
 def tree_filter(repo, tree, paths):
-    assert not all(map(isabs, paths))
+    assert not any(map(isabs, paths))
 
     index = pygit2.Index()
 
