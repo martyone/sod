@@ -45,11 +45,12 @@ def init_logging(debug=False):
 
     if debug:
         level = logging.DEBUG
-        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(name)s] %(message)s',
+        formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)7s [%(name)s] '
+                                      '%(message)s',
                                       datefmt='%H:%M:%S')
     else:
         level = logging.INFO
-        formatter = BriefFormatter('%(message)s')
+        formatter = BriefFormatter('%(levelname)s: %(message)s')
 
     handler = logging.StreamHandler()
     handler.setLevel(level)
