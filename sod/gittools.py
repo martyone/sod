@@ -228,7 +228,7 @@ def index_reset_path(repo, index, path, tree):
     if obj.filemode == pygit2.GIT_FILEMODE_TREE:
         index_add_tree(repo, index, path, obj)
     else:
-        index.add(pygit2.IndexEntry(path, obj.oid, obj.filemode))
+        index.add(pygit2.IndexEntry(path, obj.id, obj.filemode))
 
 def find_object(tree, oid, path_hint):
     assert not isabs(path_hint)

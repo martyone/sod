@@ -318,7 +318,7 @@ class Repository:
 
         try:
             parent, ref = self.git.resolve_refish(self.git.head.name)
-            parents = [parent.oid]
+            parents = [parent.id]
             ref_name = ref.name
         except pygit2.GitError:
             parents = []
