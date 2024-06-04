@@ -34,4 +34,4 @@ dependencies = [
 sod = "sod.sod:cli"
 
 [tool.setuptools]
-packages = ["sod"]
+packages = ["sod", "sod.aux"]
