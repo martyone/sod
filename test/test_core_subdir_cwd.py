@@ -1,6 +1,6 @@
 # This file is part of sod.
 #
-# Copyright (C) 2021 Martin Kampas <martin.kampas@ubedi.net>
+# Copyright (C) 2022 Martin Kampas <martin.kampas@ubedi.net>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
