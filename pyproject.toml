@@ -32,3 +32,6 @@ dependencies = [
 
 [project.scripts]
 sod = "sod.sod:cli"
+
+[tool.setuptools]
+packages = ["sod"]
