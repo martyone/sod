@@ -53,17 +53,17 @@ The maintainer of the collection has been worried about the following issues tha
   - The network connection to the remote machine is rather unreliable for `snap-sync` use.
 - The consistency of backups cannot be easily verified
 
-All of these and more can be addressed with sod.
+All of these and more can be addressed with Sod.
 
 
 ### First steps
 
-Initialize a new sod repository under the collection.
+Initialize a new Sod repository under the collection.
 
     $ cd ~/Pictures
     $ sod init
 
-Record all the existing content with sod (mind the trailing dot denoting the current working directory).
+Record all the existing content with Sod (mind the trailing dot denoting the current working directory).
 
     $ sod add .
     $ sod commit -m "Initial commit"
@@ -76,16 +76,16 @@ Sod can be configured to automatically trigger BTRFS snapshot creation on commit
 
 ### Importing new pictures
 
-Connect your camera, copy new pictures into the `IMPORT` directory and record them with sod.
+Connect your camera, copy new pictures into the `IMPORT` directory and record them with Sod.
 
     $ sod add IMPORT/
     $ sod commit -m "Import from camera"
 
-You can verify with `snapper` that a snapshot has been created automatically
+You can verify with `snapper` that a snapshot has been created automatically. Since now all your pictures are safe and you can revert any changes to this recorded state as long as the corresponding BTRFS snapshot exists. How to do that with the help of Sod will be described further down.
 
     $ snapper -c pictures list
 
-Triage the imported photos and move them to their final locations under albums using your favorite tools. After that, review the results with sod.
+Triage the imported photos and move them to their final locations under albums using your favorite tools. After that, review the results with Sod.
 
     $ sod status
 
@@ -103,15 +103,15 @@ Provided that all you did this time was moving and removing files (no edits, cop
 
 Sod can be used in cooperation with good old `rsync` to deal efficiently with file renames when creating incremental backups to filesystems that lack the respective features of BTRFS. These two also perform well where `snap-sync` is available but fails for any of the earlier mentioned reasons.
 
-Check out the [sod-redo-renames](examples/sod-redo-renames) tool that uses sod to generate a shell script to re-do renames recorded earlier by sod.
+Check out the [sod-redo-renames](examples/sod-redo-renames) tool that uses Sod to generate a shell script to re-do renames recorded earlier by Sod.
 
-In the following example the backup will be initiated from the backup machine, reffered to as `backup` here. The backed-up machine is reachable via SSH under the name `source`. The `sod-redo-renames` tool is available on `PATH` on the backed-up machine.
+In the following example the backup will be initiated from the backup machine, reffered to as `backup` here. The backed-up machine is reachable via SSH under the name `source`. The `sod-redo-renames` tool is available on `PATH` on the backed-up machine. Sod does not need to be available on the backup machine - just a plain shell with `ssh` and `rsync` is needed there.
 
 Enter the backup directory.
 
 	$ cd /path/to/backup/of/Pictures
 
-Determine the latest backed up sod commit ID.
+Determine the latest backed up Sod commit ID.
 
 	$ SINCE=$(< .sod/refs/heads/master)
 
@@ -136,9 +136,9 @@ Similarly can be performed backup to the external harddrive.
 
 ### Restoring files from backups
 
-Let sod know where to look for older revisions of your files.
+If a particular revision of a file needs to be restored, the digest recorded by Sod can be used to locate an exact copy of that file revision e.g. on a backup.  Sod can assist that with the `sod restore` command, accompanied by the `sod aux` group of commands for management of the so called auxiliary data stores, the possible sources of older file revisions.
 
-First of all register the local BTRFS snapshots. Mind the use of quotes to avoid shell expansion of the asterisk.
+Let sod know about your backups.  First of all register the local BTRFS snapshots. Mind the use of quotes to avoid shell expansion of the asterisk.
 
     $ sod aux add local "file://$HOME/Pictures/.snapshots/*/snapshot"
 
@@ -150,7 +150,7 @@ And the backups on the harddrive too.
 
     $ sod aux add exthdd "file:///media/exthdd/backup/Pictures/*/snapshot"
 
-Now update the cached state of these backups
+Now update the cached information about these backups
 
     $ sod aux update --all
 
@@ -175,10 +175,10 @@ In the easy case, the latest recorded revision of a file can be restored simply 
 
 ### Detecting data corruption
 
-In order to speed up normal operations, sod works with cached data digests. This way it can search for regular changes among hundreds of gigabytes of picture data in few seconds. In order to detect data corruption caused by silent disk errors or so, the caches must be baypassed. This is achieved with the `--rehash` option.
+In order to speed up normal operations, Sod works with cached data digests. This way it can search for regular changes among hundreds of gigabytes of picture data in few seconds. In order to detect data corruption caused by silent disk errors or so, the caches must be baypassed. This is achieved with the `--rehash` option.
 
     sod status --rehash
 
-This operation takes as long as the initial scan. All the data will be re-read from disk and cryptographic digests recreated - be patient.
+This operation takes as long as an initial scan would do. All the data will be re-read from disk and cryptographic digests recreated - be patient.
 
-This can be used equally for consistency checking of the backups.
+This can be used equally for consistency checking of the backups. Just run Sod with current working directory under a backup tree.
