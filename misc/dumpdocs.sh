@@ -24,7 +24,7 @@ process_command()
 			"$(basename "$0")"
 		printf '<pre>\n'
 
-		while IFS='' read line; do
+		while IFS='' read -r line; do
 			line=${line//</"&lt;"}
 			line=${line//>/"&gt;"}
 

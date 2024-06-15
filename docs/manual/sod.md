@@ -76,8 +76,8 @@ Usage: sod [OPTIONS] COMMAND [ARGS]...
 
   The simplest form of an auxiliary data store is a plain copy of the original
   Sod repository. It may be a local copy or a remote one, in the latter case
-  accessed via SSH. Use 'sox aux add --help-types' to learn about the possible
-  auxiliary data store types.
+  accessed via SSH. Use 'sox aux add --help' to learn what are the options of
+  accessing auxiliary data stores.
 
   The 'snapshot.command' configuration option can be used to let Sod trigger
   snapshot creation automatically whenever a new content is committed. See the
