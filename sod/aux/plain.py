@@ -75,13 +75,13 @@ class PlainAuxStore(AuxStore):
         if not scheme or scheme == 'file':
             assert not netloc
             try:
-                shutil.copyfile(path, destination_path, follow_symlinks=False)
+                shutil.copy2(path, destination_path, follow_symlinks=False)
             except Exception as e:
                 raise Error('Failed to copy file: ' + str(e))
         elif scheme == 'ssh':
-            quoted_path = glob.escape(path)
-            # TODO Avoid using '-T'?
-            result = subprocess.run(['scp', '-T', netloc + ':' + quoted_path, destination_path])
+            # Do not use scp: it does not preserve times with subsecond precision
+            result = subprocess.run(['rsync', '--archive', '--no-recursive',
+                                     netloc + ':' + path, destination_path])
             if result.returncode != 0:
                 raise Error('Download failed')
         else:

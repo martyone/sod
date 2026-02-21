@@ -176,3 +176,11 @@ def test_restore_older_from_not_found(three_commit_repo_with_aux_stores):
 def test_restore_older_renamed(three_commit_repo_with_aux_stores):
     utils.run(['restore', 'b  (-_*).txt', 'c272e1c23d'])
     assert utils.read('b  (-_*).txt') == 'b content'
+
+def test_restore_stat(three_commit_repo_with_aux_stores, file_to_restore):
+    stat = os.stat(file_to_restore)
+    os.remove(file_to_restore)
+    utils.run(['restore', file_to_restore])
+    new_stat = os.stat(file_to_restore)
+    assert stat.st_mode == new_stat.st_mode
+    assert stat.st_mtime == new_stat.st_mtime
